@@ -33,7 +33,8 @@ namespace ReceiptRing.App {
       private readonly receiptApiService: Services.ReceiptApiService,
       private readonly bankApiService: Services.BankApiService,
       private readonly spendingAggregatorService: Services.SpendingAggregatorService,
-      private readonly budgetRingView: UI.BudgetRingView
+      private readonly budgetRingView: UI.BudgetRingView,
+      private readonly monthlyTrendView: UI.MonthlyTrendView
     ) {
       this.items = this.storageService.load();
     }
@@ -75,8 +76,7 @@ namespace ReceiptRing.App {
       this.elements.connectBankButton.addEventListener("click", () => void this.connectBank());
       this.elements.refreshTransactionsButton.addEventListener("click", () => void this.refreshTransactions());
       this.elements.budgetMonth.addEventListener("change", () => {
-        this.selectedMonth = this.elements.budgetMonth.value || null;
-        this.renderRing();
+        this.selectMonth(this.elements.budgetMonth.value || null);
       });
 
       this.elements.tabButtons.forEach((button) => {
@@ -722,6 +722,7 @@ namespace ReceiptRing.App {
       this.monthlySpend = this.spendingAggregatorService.aggregate(receipts, this.bankTransactions);
       this.populateMonths();
       this.renderTransactions();
+      this.renderTrend();
       this.renderRing();
     }
 
@@ -750,6 +751,24 @@ namespace ReceiptRing.App {
     private renderRing(): void {
       const month = this.monthlySpend.find((entry) => entry.month === this.selectedMonth) ?? null;
       this.budgetRingView.render(this.elements.budgetRing, this.elements.budgetLegend, month);
+    }
+
+    private renderTrend(): void {
+      this.monthlyTrendView.render(
+        this.elements.monthlyTrend,
+        this.monthlySpend,
+        this.selectedMonth,
+        (month) => this.selectMonth(month)
+      );
+    }
+
+    // Point the whole budgeting view at one month, keeping the dropdown, ring,
+    // and trend-chart highlight in sync no matter which of them triggered it.
+    private selectMonth(month: string | null): void {
+      this.selectedMonth = month;
+      this.elements.budgetMonth.value = month ?? "";
+      this.renderTrend();
+      this.renderRing();
     }
 
     private formatMonthLabel(key: string): string {
