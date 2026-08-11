@@ -7,21 +7,44 @@ import {
   createLinkToken,
   exchangePublicToken,
   getAccounts,
-  syncTransactions
+  syncTransactions,
+  removeItem
 } from "./plaid.mjs";
 import { encryptSecret, decryptSecret } from "./crypto.mjs";
 
 export function createBank(prisma) {
+  // Revoke access tokens for connections we have already deleted locally.
+  // Always best-effort: the rows are gone either way, and a stale Item left at
+  // Plaid is harmless, so a failure here must never fail the caller's request.
+  async function releaseItems(connections) {
+    for (const connection of connections ?? []) {
+      try {
+        await removeItem(
+          decryptSecret({
+            ciphertext: connection.encryptedToken,
+            iv: connection.tokenIv,
+            authTag: connection.tokenAuthTag
+          })
+        );
+      } catch (error) {
+        console.warn("Could not release Plaid item:", error?.message ?? error);
+      }
+    }
+  }
+
   // Persist (or refresh) the accounts Plaid returns for a connection.
   //
   // plaidAccountId is globally unique, so a naive upsert-by-id would let one
   // user reassign a row that already belongs to another user. This can happen
   // in Plaid's sandbox, where linking the same test bank returns stable ids.
   // Guard against it: never touch a row owned by a different user.
-  async function storeAccounts(connectionId, userId, accounts) {
+  //
+  // `client` is either the shared Prisma client or a transaction handle, so the
+  // caller decides whether these writes join a surrounding transaction.
+  async function storeAccounts(client, connectionId, userId, accounts) {
     for (const account of accounts ?? []) {
       if (!account?.account_id) continue;
-      const existing = await prisma.bankAccount.findUnique({
+      const existing = await client.bankAccount.findUnique({
         where: { plaidAccountId: account.account_id },
         include: { connection: { select: { userId: true } } }
       });
@@ -34,7 +57,7 @@ export function createBank(prisma) {
         type: account.subtype ?? account.type ?? null,
         lastFour: account.mask ?? null
       };
-      await prisma.bankAccount.upsert({
+      await client.bankAccount.upsert({
         where: { plaidAccountId: account.account_id },
         update: { connectionId, ...fields },
         create: { connectionId, plaidAccountId: account.account_id, ...fields }
@@ -150,6 +173,7 @@ export function createBank(prisma) {
       }
       const metadata = req.body?.metadata ?? {};
       const institutionName = metadata?.institution?.name ?? null;
+      const institutionId = metadata?.institution?.institution_id ?? null;
 
       try {
         const exchange = await exchangePublicToken(publicToken);
@@ -157,27 +181,65 @@ export function createBank(prisma) {
         if (!accessToken) {
           throw new Error("Plaid did not return an access token.");
         }
+        const itemId = exchange?.item_id ?? null;
         // Fetching accounts both validates the token and gives us rows to store.
         const accountsResponse = await getAccounts(accessToken);
         const accounts = accountsResponse?.accounts ?? [];
 
         const encrypted = encryptSecret(accessToken);
-        const connection = await prisma.bankConnection.create({
-          data: {
-            userId: req.userId,
-            provider: "plaid",
-            institutionName,
-            itemId: exchange?.item_id ?? null,
-            encryptedToken: encrypted.ciphertext,
-            tokenIv: encrypted.iv,
-            tokenAuthTag: encrypted.authTag
+
+        // Going through Link again for a bank the user already has is a
+        // re-link, not a second bank — but Plaid hands back a new Item whose
+        // account and transaction ids share nothing with the old one, so
+        // storing it alongside the old connection imports a duplicate copy of
+        // every transaction. Replace instead: drop the superseded connections
+        // (cascading their accounts and transactions) in the same transaction
+        // that creates the new one, so the user is never left with two copies
+        // or with none.
+        const supersededFilters = [];
+        if (itemId) supersededFilters.push({ itemId });
+        if (institutionId) supersededFilters.push({ institutionId });
+
+        const { connection, superseded } = await prisma.$transaction(async (tx) => {
+          let stale = [];
+          if (supersededFilters.length > 0) {
+            stale = await tx.bankConnection.findMany({
+              where: { userId: req.userId, OR: supersededFilters },
+              select: { id: true, encryptedToken: true, tokenIv: true, tokenAuthTag: true }
+            });
+            if (stale.length > 0) {
+              await tx.bankConnection.deleteMany({ where: { id: { in: stale.map((row) => row.id) } } });
+            }
           }
+
+          const created = await tx.bankConnection.create({
+            data: {
+              userId: req.userId,
+              provider: "plaid",
+              institutionName,
+              institutionId,
+              itemId,
+              encryptedToken: encrypted.ciphertext,
+              tokenIv: encrypted.iv,
+              tokenAuthTag: encrypted.authTag
+            }
+          });
+          await storeAccounts(tx, created.id, req.userId, accounts);
+          return { connection: created, superseded: stale };
         });
-        await storeAccounts(connection.id, req.userId, accounts);
+
+        // The superseded Items are no longer referenced by anything we store,
+        // so release them at Plaid too. Best-effort: the local replacement has
+        // already committed, and a leftover Item costs the user nothing.
+        await releaseItems(superseded);
+
         res.status(201).json({
           id: connection.id,
           institutionName,
-          accounts: accounts.length
+          accounts: accounts.length,
+          // Lets the client explain that an existing link was refreshed rather
+          // than a second one added.
+          replaced: superseded.length > 0
         });
       } catch (error) {
         console.error("Plaid exchange failed:", error);

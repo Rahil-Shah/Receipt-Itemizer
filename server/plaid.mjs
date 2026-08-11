@@ -115,6 +115,15 @@ export function getAccounts(accessToken) {
 }
 
 /**
+ * Release an Item we no longer store (the user unlinked it, or re-linked the
+ * same bank and this Item was superseded). This only revokes our own access
+ * token — it reads nothing and cannot move money.
+ */
+export function removeItem(accessToken) {
+  return request("/item/remove", { access_token: accessToken });
+}
+
+/**
  * Cursor-based transactions sync (read-only). Returns added/modified/removed
  * batches plus the next cursor; the caller loops while has_more is true.
  */
