@@ -2176,6 +2176,7 @@ var ReceiptRing;
                 this.elements.budgetMonth.value = month ?? "";
                 this.renderTrend();
                 this.renderRing();
+                this.renderTransactions();
             }
             formatMonthLabel(key) {
                 const [year, month] = key.split("-").map(Number);
@@ -2188,8 +2189,11 @@ var ReceiptRing;
             }
             renderTransactions() {
                 const list = this.elements.transactionsList;
-                const transactions = this.bankTransactions;
+                const transactions = this.selectedMonth
+                    ? this.bankTransactions.filter((txn) => this.spendingAggregatorService.monthKey(txn.date) === this.selectedMonth)
+                    : this.bankTransactions;
                 this.elements.transactionsEmpty.classList.toggle("hidden", transactions.length > 0);
+                this.setTransactionsEmptyMessage(transactions.length === 0);
                 list.replaceChildren();
                 for (const txn of transactions.slice(0, 100)) {
                     const row = document.createElement("div");
@@ -2209,6 +2213,21 @@ var ReceiptRing;
                     amount.textContent = this.currencyFormatService.format(txn.amount);
                     row.append(main, amount);
                     list.append(row);
+                }
+            }
+            setTransactionsEmptyMessage(isEmpty) {
+                if (!isEmpty)
+                    return;
+                const heading = this.elements.transactionsEmpty.querySelector("strong");
+                const detail = this.elements.transactionsEmpty.querySelector("span");
+                const hasAnyTransactions = this.bankTransactions.length > 0;
+                if (heading) {
+                    heading.textContent = hasAnyTransactions ? "No transactions this month" : "No transactions yet";
+                }
+                if (detail) {
+                    detail.textContent = hasAnyTransactions
+                        ? "Pick another month to see its activity."
+                        : "Connect a bank to import read-only transactions.";
                 }
             }
             scheduleCategoryReview() {

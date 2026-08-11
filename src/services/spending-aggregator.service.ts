@@ -85,7 +85,9 @@ namespace ReceiptRing.Services {
         .sort((a, b) => (a.month < b.month ? 1 : -1));
     }
 
-    private monthKey(dateStr: string): string | null {
+    // Public so callers (e.g. filtering a transaction list to one month) bucket
+    // dates exactly the way aggregate() does.
+    monthKey(dateStr: string): string | null {
       if (typeof dateStr === "string" && /^\d{4}-\d{2}/.test(dateStr)) {
         return dateStr.slice(0, 7);
       }

@@ -769,6 +769,7 @@ namespace ReceiptRing.App {
       this.elements.budgetMonth.value = month ?? "";
       this.renderTrend();
       this.renderRing();
+      this.renderTransactions();
     }
 
     private formatMonthLabel(key: string): string {
@@ -782,8 +783,15 @@ namespace ReceiptRing.App {
 
     private renderTransactions(): void {
       const list = this.elements.transactionsList;
-      const transactions = this.bankTransactions;
+      // Scope the list to the month the rest of the view is focused on so the
+      // transactions line up with the ring and the selected trend bar.
+      const transactions = this.selectedMonth
+        ? this.bankTransactions.filter(
+            (txn) => this.spendingAggregatorService.monthKey(txn.date) === this.selectedMonth
+          )
+        : this.bankTransactions;
       this.elements.transactionsEmpty.classList.toggle("hidden", transactions.length > 0);
+      this.setTransactionsEmptyMessage(transactions.length === 0);
       list.replaceChildren();
 
       for (const txn of transactions.slice(0, 100)) {
@@ -807,6 +815,23 @@ namespace ReceiptRing.App {
 
         row.append(main, amount);
         list.append(row);
+      }
+    }
+
+    // The empty state does double duty: no bank linked at all, versus a linked
+    // bank that simply has no activity in the month currently in focus.
+    private setTransactionsEmptyMessage(isEmpty: boolean): void {
+      if (!isEmpty) return;
+      const heading = this.elements.transactionsEmpty.querySelector("strong");
+      const detail = this.elements.transactionsEmpty.querySelector("span");
+      const hasAnyTransactions = this.bankTransactions.length > 0;
+      if (heading) {
+        heading.textContent = hasAnyTransactions ? "No transactions this month" : "No transactions yet";
+      }
+      if (detail) {
+        detail.textContent = hasAnyTransactions
+          ? "Pick another month to see its activity."
+          : "Connect a bank to import read-only transactions.";
       }
     }
 
