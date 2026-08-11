@@ -12,6 +12,7 @@ namespace ReceiptRing.App {
     private isPromptingForCategories = false;
     private reviewTimer: number | null = null;
     private bankTransactions: Services.BankTransaction[] = [];
+    private bankConnections: Services.BankConnection[] = [];
     private monthlySpend: Services.MonthlySpend[] = [];
     private selectedMonth: string | null = null;
     private serverHasGeminiKey = false;
@@ -660,18 +661,41 @@ namespace ReceiptRing.App {
       try {
         this.setBankStatus("Linking account…");
         const result = await this.bankApiService.exchange(publicToken, metadata);
-        this.setBankStatus(`Connected ${result.institutionName ?? "bank"}. Syncing…`);
-        const { imported, pending } = await this.bankApiService.sync();
-        if (pending && imported === 0) {
+        const bank = result.institutionName ?? "bank";
+        // A re-link replaces the previous connection server-side rather than
+        // stacking a second copy of the same history on top of it — say so, so
+        // the missing "duplicate" isn't mistaken for lost data.
+        this.setBankStatus(
+          result.replaced ? `Reconnected ${bank}, replacing the earlier link. Syncing…` : `Connected ${bank}. Syncing…`
+        );
+        const sync = await this.bankApiService.sync();
+        if (sync.pending && sync.imported === 0) {
           // Plaid is still preparing the initial history — not an error.
           this.setBankStatus("Connected. Your bank is still preparing transactions — reopen Budgeting in a minute.");
         } else {
-          this.setBankStatus(`Imported ${imported} transaction${imported === 1 ? "" : "s"}.`);
+          this.setBankStatus(this.describeSync(sync));
         }
         await this.loadBudgeting({ sync: false });
       } catch (error) {
         this.setBankStatus(error instanceof Error ? error.message : "Bank linking failed.");
       }
+    }
+
+    // One sentence covering what came in plus anything that went wrong, so a
+    // bank that needs re-authenticating says so instead of looking like an
+    // empty refresh.
+    private describeSync(result: Services.SyncResult): string {
+      const imported = `Imported ${result.imported} transaction${result.imported === 1 ? "" : "s"}.`;
+      const errors = result.errors ?? [];
+      if (errors.length === 0) return imported;
+
+      const details = errors
+        .map((error) => `${error.institutionName ?? "A bank"}: ${error.message}`)
+        .join(" ");
+      const hint = errors.some((error) => error.reconnectRequired)
+        ? " Use Connect bank to reconnect it — that replaces the old link instead of duplicating it."
+        : "";
+      return `${imported} ${details}${hint}`;
     }
 
     // Explicit re-sync using the stored access token — no re-linking or bank
@@ -681,11 +705,11 @@ namespace ReceiptRing.App {
       this.elements.refreshTransactionsButton.setAttribute("disabled", "true");
       try {
         this.setBankStatus("Refreshing…");
-        const { imported, pending } = await this.bankApiService.sync();
-        if (pending && imported === 0) {
+        const sync = await this.bankApiService.sync();
+        if (sync.pending && sync.imported === 0 && (sync.errors ?? []).length === 0) {
           this.setBankStatus("Your bank is still preparing transactions — try again in a minute.");
         } else {
-          this.setBankStatus(`Imported ${imported} new transaction${imported === 1 ? "" : "s"}.`);
+          this.setBankStatus(this.describeSync(sync));
         }
         await this.loadBudgeting({ sync: false });
       } catch (error) {
@@ -719,8 +743,14 @@ namespace ReceiptRing.App {
       } catch {
         this.bankTransactions = [];
       }
+      try {
+        this.bankConnections = await this.bankApiService.listConnections();
+      } catch {
+        this.bankConnections = [];
+      }
       this.monthlySpend = this.spendingAggregatorService.aggregate(receipts, this.bankTransactions);
       this.populateMonths();
+      this.renderConnections();
       this.renderTransactions();
       this.renderTrend();
       this.renderRing();
@@ -746,6 +776,62 @@ namespace ReceiptRing.App {
         ? previous
         : this.monthlySpend[0].month;
       select.value = this.selectedMonth ?? "";
+    }
+
+    // Show what is actually linked. Without this the only evidence of a bank
+    // connection is the transaction list, so a user with a stale or doubled-up
+    // link has no way to see it, let alone remove it.
+    private renderConnections(): void {
+      const container = this.elements.bankConnections;
+      container.replaceChildren();
+      if (this.bankConnections.length === 0) return;
+
+      for (const connection of this.bankConnections) {
+        const row = document.createElement("div");
+        row.className = "bank-connection-row";
+
+        const main = document.createElement("div");
+        main.className = "bank-connection-main";
+        const name = document.createElement("span");
+        name.className = "bank-connection-name";
+        name.textContent = connection.institutionName ?? "Linked bank";
+        const meta = document.createElement("span");
+        meta.className = "bank-connection-meta";
+        const accounts = `${connection.accounts} account${connection.accounts === 1 ? "" : "s"}`;
+        const transactions = `${connection.transactions} transaction${connection.transactions === 1 ? "" : "s"}`;
+        meta.textContent = `${accounts} · ${transactions}`;
+        main.append(name, meta);
+
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "btn btn-ghost btn-small";
+        remove.textContent = "Remove";
+        remove.addEventListener("click", () => void this.removeConnection(connection));
+
+        row.append(main, remove);
+        container.append(row);
+      }
+    }
+
+    private async removeConnection(connection: Services.BankConnection): Promise<void> {
+      const label = connection.institutionName ?? "this bank";
+      if (
+        !window.confirm(
+          `Remove ${label}? Its ${connection.transactions} imported transaction${
+            connection.transactions === 1 ? "" : "s"
+          } will be deleted. Saved receipts are not affected.`
+        )
+      ) {
+        return;
+      }
+      try {
+        this.setBankStatus("Removing…");
+        await this.bankApiService.removeConnection(connection.id);
+        this.setBankStatus(`Removed ${label}.`);
+        await this.loadBudgeting({ sync: false });
+      } catch (error) {
+        this.setBankStatus(error instanceof Error ? error.message : "Could not remove the bank.");
+      }
     }
 
     private renderRing(): void {

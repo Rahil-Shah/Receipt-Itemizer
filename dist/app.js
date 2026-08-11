@@ -755,6 +755,19 @@ var ReceiptRing;
                     throw new Error(await this.parseError(response));
                 return (await response.json());
             }
+            async listConnections() {
+                const response = await this.request("/api/plaid/connections");
+                if (!response.ok)
+                    throw new Error(await this.parseError(response));
+                return (await response.json());
+            }
+            async removeConnection(id) {
+                const response = await this.request(`/api/plaid/connections/${encodeURIComponent(id)}`, {
+                    method: "DELETE"
+                });
+                if (!response.ok)
+                    throw new Error(await this.parseError(response));
+            }
             async listTransactions() {
                 const response = await this.request("/api/transactions");
                 if (!response.ok)
@@ -940,6 +953,7 @@ var ReceiptRing;
                     connectBankButton: this.getElement("#connectBankButton", HTMLButtonElement),
                     refreshTransactionsButton: this.getElement("#refreshTransactionsButton", HTMLButtonElement),
                     bankStatus: this.getElement("#bankStatus", HTMLElement),
+                    bankConnections: this.getElement("#bankConnections", HTMLElement),
                     transactionsList: this.getElement("#transactionsList", HTMLElement),
                     transactionsEmpty: this.getElement("#transactionsEmpty", HTMLElement)
                 };
@@ -1549,6 +1563,7 @@ var ReceiptRing;
                 this.isPromptingForCategories = false;
                 this.reviewTimer = null;
                 this.bankTransactions = [];
+                this.bankConnections = [];
                 this.monthlySpend = [];
                 this.selectedMonth = null;
                 this.serverHasGeminiKey = false;
@@ -2084,13 +2099,14 @@ var ReceiptRing;
                 try {
                     this.setBankStatus("Linking account…");
                     const result = await this.bankApiService.exchange(publicToken, metadata);
-                    this.setBankStatus(`Connected ${result.institutionName ?? "bank"}. Syncing…`);
-                    const { imported, pending } = await this.bankApiService.sync();
-                    if (pending && imported === 0) {
+                    const bank = result.institutionName ?? "bank";
+                    this.setBankStatus(result.replaced ? `Reconnected ${bank}, replacing the earlier link. Syncing…` : `Connected ${bank}. Syncing…`);
+                    const sync = await this.bankApiService.sync();
+                    if (sync.pending && sync.imported === 0) {
                         this.setBankStatus("Connected. Your bank is still preparing transactions — reopen Budgeting in a minute.");
                     }
                     else {
-                        this.setBankStatus(`Imported ${imported} transaction${imported === 1 ? "" : "s"}.`);
+                        this.setBankStatus(this.describeSync(sync));
                     }
                     await this.loadBudgeting({ sync: false });
                 }
@@ -2098,16 +2114,29 @@ var ReceiptRing;
                     this.setBankStatus(error instanceof Error ? error.message : "Bank linking failed.");
                 }
             }
+            describeSync(result) {
+                const imported = `Imported ${result.imported} transaction${result.imported === 1 ? "" : "s"}.`;
+                const errors = result.errors ?? [];
+                if (errors.length === 0)
+                    return imported;
+                const details = errors
+                    .map((error) => `${error.institutionName ?? "A bank"}: ${error.message}`)
+                    .join(" ");
+                const hint = errors.some((error) => error.reconnectRequired)
+                    ? " Use Connect bank to reconnect it — that replaces the old link instead of duplicating it."
+                    : "";
+                return `${imported} ${details}${hint}`;
+            }
             async refreshTransactions() {
                 this.elements.refreshTransactionsButton.setAttribute("disabled", "true");
                 try {
                     this.setBankStatus("Refreshing…");
-                    const { imported, pending } = await this.bankApiService.sync();
-                    if (pending && imported === 0) {
+                    const sync = await this.bankApiService.sync();
+                    if (sync.pending && sync.imported === 0 && (sync.errors ?? []).length === 0) {
                         this.setBankStatus("Your bank is still preparing transactions — try again in a minute.");
                     }
                     else {
-                        this.setBankStatus(`Imported ${imported} new transaction${imported === 1 ? "" : "s"}.`);
+                        this.setBankStatus(this.describeSync(sync));
                     }
                     await this.loadBudgeting({ sync: false });
                 }
@@ -2139,8 +2168,15 @@ var ReceiptRing;
                 catch {
                     this.bankTransactions = [];
                 }
+                try {
+                    this.bankConnections = await this.bankApiService.listConnections();
+                }
+                catch {
+                    this.bankConnections = [];
+                }
                 this.monthlySpend = this.spendingAggregatorService.aggregate(receipts, this.bankTransactions);
                 this.populateMonths();
+                this.renderConnections();
                 this.renderTransactions();
                 this.renderTrend();
                 this.renderRing();
@@ -2163,6 +2199,49 @@ var ReceiptRing;
                     ? previous
                     : this.monthlySpend[0].month;
                 select.value = this.selectedMonth ?? "";
+            }
+            renderConnections() {
+                const container = this.elements.bankConnections;
+                container.replaceChildren();
+                if (this.bankConnections.length === 0)
+                    return;
+                for (const connection of this.bankConnections) {
+                    const row = document.createElement("div");
+                    row.className = "bank-connection-row";
+                    const main = document.createElement("div");
+                    main.className = "bank-connection-main";
+                    const name = document.createElement("span");
+                    name.className = "bank-connection-name";
+                    name.textContent = connection.institutionName ?? "Linked bank";
+                    const meta = document.createElement("span");
+                    meta.className = "bank-connection-meta";
+                    const accounts = `${connection.accounts} account${connection.accounts === 1 ? "" : "s"}`;
+                    const transactions = `${connection.transactions} transaction${connection.transactions === 1 ? "" : "s"}`;
+                    meta.textContent = `${accounts} · ${transactions}`;
+                    main.append(name, meta);
+                    const remove = document.createElement("button");
+                    remove.type = "button";
+                    remove.className = "btn btn-ghost btn-small";
+                    remove.textContent = "Remove";
+                    remove.addEventListener("click", () => void this.removeConnection(connection));
+                    row.append(main, remove);
+                    container.append(row);
+                }
+            }
+            async removeConnection(connection) {
+                const label = connection.institutionName ?? "this bank";
+                if (!window.confirm(`Remove ${label}? Its ${connection.transactions} imported transaction${connection.transactions === 1 ? "" : "s"} will be deleted. Saved receipts are not affected.`)) {
+                    return;
+                }
+                try {
+                    this.setBankStatus("Removing…");
+                    await this.bankApiService.removeConnection(connection.id);
+                    this.setBankStatus(`Removed ${label}.`);
+                    await this.loadBudgeting({ sync: false });
+                }
+                catch (error) {
+                    this.setBankStatus(error instanceof Error ? error.message : "Could not remove the bank.");
+                }
             }
             renderRing() {
                 const month = this.monthlySpend.find((entry) => entry.month === this.selectedMonth) ?? null;

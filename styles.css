@@ -1645,6 +1645,44 @@ input[type="number"] {
   font-size: 0.9rem;
 }
 
+.bank-connections {
+  display: grid;
+  gap: 2px;
+}
+
+.bank-connections:not(:empty) {
+  margin-bottom: 14px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bank-connection-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 4px;
+}
+
+.bank-connection-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bank-connection-name {
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bank-connection-meta {
+  font-size: 0.8rem;
+  color: var(--ink-3);
+}
+
 .transactions-list {
   display: grid;
   gap: 2px;

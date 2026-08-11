@@ -350,6 +350,56 @@ export function createBank(prisma) {
       }
     });
 
+    // List the user's linked banks. Sanitized: no tokens, no Plaid item or
+    // account ids — just enough for the UI to show what is connected and how
+    // much data each link accounts for.
+    app.get("/api/plaid/connections", requireAuth, async (req, res) => {
+      try {
+        const connections = await prisma.bankConnection.findMany({
+          where: { userId: req.userId },
+          orderBy: { createdAt: "asc" },
+          include: {
+            accounts: { select: { id: true, _count: { select: { transactions: true } } } }
+          }
+        });
+        res.json(
+          connections.map((connection) => ({
+            id: connection.id,
+            institutionName: connection.institutionName,
+            accounts: connection.accounts.length,
+            transactions: connection.accounts.reduce(
+              (sum, account) => sum + account._count.transactions,
+              0
+            ),
+            linkedAt: connection.createdAt
+          }))
+        );
+      } catch (error) {
+        console.error("Failed to list bank connections:", error);
+        res.status(500).json({ error: "Could not load linked banks." });
+      }
+    });
+
+    // Unlink a bank. Scoped to the caller, and cascades to that connection's
+    // accounts and transactions so nothing is left stranded.
+    app.delete("/api/plaid/connections/:id", requireAuth, async (req, res) => {
+      try {
+        const connection = await prisma.bankConnection.findFirst({
+          where: { id: req.params.id, userId: req.userId },
+          select: { id: true, encryptedToken: true, tokenIv: true, tokenAuthTag: true }
+        });
+        if (!connection) {
+          return res.status(404).json({ error: "Bank connection not found." });
+        }
+        await prisma.bankConnection.delete({ where: { id: connection.id } });
+        await releaseItems([connection]);
+        res.status(204).end();
+      } catch (error) {
+        console.error("Failed to remove bank connection:", error);
+        res.status(500).json({ error: "Could not remove the bank." });
+      }
+    });
+
     // Return the user's stored transactions (sanitized — no tokens/ids leaked).
     app.get("/api/transactions", requireAuth, async (req, res) => {
       try {

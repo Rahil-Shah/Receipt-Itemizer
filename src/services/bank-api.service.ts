@@ -44,6 +44,28 @@ namespace ReceiptRing.Services {
     id: string;
     institutionName: string | null;
     accounts: number;
+    // True when this link replaced an earlier one for the same bank.
+    replaced?: boolean;
+  }
+
+  export interface BankConnection {
+    id: string;
+    institutionName: string | null;
+    accounts: number;
+    transactions: number;
+    linkedAt: string;
+  }
+
+  export interface SyncError {
+    institutionName: string | null;
+    message: string;
+    reconnectRequired: boolean;
+  }
+
+  export interface SyncResult {
+    imported: number;
+    pending?: boolean;
+    errors?: SyncError[];
   }
 
   export class BankApiService {
@@ -76,10 +98,23 @@ namespace ReceiptRing.Services {
       return (await response.json()) as LinkResult;
     }
 
-    async sync(): Promise<{ imported: number; pending?: boolean }> {
+    async sync(): Promise<SyncResult> {
       const response = await this.request("/api/plaid/sync", { method: "POST" });
       if (!response.ok) throw new Error(await this.parseError(response));
-      return (await response.json()) as { imported: number; pending?: boolean };
+      return (await response.json()) as SyncResult;
+    }
+
+    async listConnections(): Promise<BankConnection[]> {
+      const response = await this.request("/api/plaid/connections");
+      if (!response.ok) throw new Error(await this.parseError(response));
+      return (await response.json()) as BankConnection[];
+    }
+
+    async removeConnection(id: string): Promise<void> {
+      const response = await this.request(`/api/plaid/connections/${encodeURIComponent(id)}`, {
+        method: "DELETE"
+      });
+      if (!response.ok) throw new Error(await this.parseError(response));
     }
 
     async listTransactions(): Promise<BankTransaction[]> {
