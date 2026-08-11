@@ -12,6 +12,20 @@ import {
 } from "./plaid.mjs";
 import { encryptSecret, decryptSecret } from "./crypto.mjs";
 
+// Plaid error codes that mean the stored access token can no longer be used and
+// the user has to go through Link again. Everything else is treated as a
+// transient failure worth retrying on the next sync.
+const RECONNECT_ERROR_CODES = new Set([
+  "ITEM_LOGIN_REQUIRED",
+  "ITEM_LOCKED",
+  "INVALID_ACCESS_TOKEN",
+  "INVALID_CREDENTIALS",
+  "INVALID_MFA",
+  "USER_PERMISSION_REVOKED",
+  "PENDING_EXPIRATION",
+  "ITEM_NOT_FOUND"
+]);
+
 export function createBank(prisma) {
   // Revoke access tokens for connections we have already deleted locally.
   // Always best-effort: the rows are gone either way, and a stale Item left at
@@ -70,7 +84,7 @@ export function createBank(prisma) {
   // rows written and the cursor to persist for next time.
   async function syncConnection(connection, userId) {
     // Map Plaid account ids to our own account row ids for this connection.
-    const accountRowByPlaidId = new Map(
+    let accountRowByPlaidId = new Map(
       connection.accounts.map((account) => [account.plaidAccountId, account.id])
     );
 
@@ -82,7 +96,32 @@ export function createBank(prisma) {
 
     let cursor = connection.transactionCursor ?? null;
     let imported = 0;
+    let skipped = 0;
     let hasMore = true;
+    let refetchedAccounts = false;
+
+    // Accounts are captured at link time, but an Item's account list can grow
+    // afterwards (the user adds a card, or opens a new account at the same
+    // bank). A transaction whose account we have never seen used to be dropped
+    // on the floor while the cursor still advanced past it, so it could never
+    // be recovered by refreshing. Re-fetch the account list once per sync when
+    // an unknown id shows up, and treat anything still unresolved as a reason
+    // not to advance the cursor.
+    const resolveAccountRow = async (plaidAccountId) => {
+      const known = accountRowByPlaidId.get(plaidAccountId);
+      if (known) return known;
+      if (!refetchedAccounts) {
+        refetchedAccounts = true;
+        const response = await getAccounts(token);
+        await storeAccounts(prisma, connection.id, userId, response?.accounts ?? []);
+        const rows = await prisma.bankAccount.findMany({
+          where: { connectionId: connection.id },
+          select: { id: true, plaidAccountId: true }
+        });
+        accountRowByPlaidId = new Map(rows.map((row) => [row.plaidAccountId, row.id]));
+      }
+      return accountRowByPlaidId.get(plaidAccountId) ?? null;
+    };
 
     while (hasMore) {
       let page;
@@ -93,7 +132,7 @@ export function createBank(prisma) {
         // pulling the Item's initial transactions. That's expected, not a
         // failure: report it as pending so the next sync picks the data up.
         if (error?.plaidErrorCode === "PRODUCT_NOT_READY") {
-          return { imported, cursor, pending: true };
+          return { imported, cursor, pending: true, incomplete: skipped > 0 };
         }
         throw error;
       }
@@ -102,8 +141,11 @@ export function createBank(prisma) {
 
       for (const txn of [...(page?.added ?? []), ...(page?.modified ?? [])]) {
         if (!txn?.transaction_id) continue;
-        const accountId = accountRowByPlaidId.get(txn.account_id);
-        if (!accountId) continue;
+        const accountId = await resolveAccountRow(txn.account_id);
+        if (!accountId) {
+          skipped += 1;
+          continue;
+        }
 
         // plaidTxnId is globally unique; the same cross-user guard as for
         // accounts prevents reassigning a transaction owned by someone else.
@@ -143,7 +185,15 @@ export function createBank(prisma) {
       }
     }
 
-    return { imported, cursor, pending: false };
+    if (skipped > 0) {
+      console.warn(
+        `Sync for connection ${connection.id} skipped ${skipped} transaction(s) with unknown accounts; holding the cursor so the next sync retries them.`
+      );
+    }
+    // Holding the old cursor when anything was skipped keeps the next sync
+    // replaying those pages. The writes are upserts keyed on Plaid's
+    // transaction id, so replaying costs a little work and duplicates nothing.
+    return { imported, cursor, pending: false, incomplete: skipped > 0 };
   }
 
   function register(app, requireAuth) {
@@ -258,11 +308,33 @@ export function createBank(prisma) {
 
         let imported = 0;
         let pending = false;
+        const errors = [];
         for (const connection of connections) {
-          const result = await syncConnection(connection, req.userId);
+          let result;
+          try {
+            result = await syncConnection(connection, req.userId);
+          } catch (error) {
+            // One unhealthy connection must not blank out the others. Report it
+            // per-bank instead, and say plainly when the fix is to reconnect --
+            // an expired login used to surface as a generic failure, which
+            // reads as "refresh is broken" rather than "this bank needs
+            // re-authenticating".
+            console.error(`Plaid sync failed for connection ${connection.id}:`, error);
+            errors.push({
+              institutionName: connection.institutionName,
+              reconnectRequired: RECONNECT_ERROR_CODES.has(error?.plaidErrorCode),
+              message: RECONNECT_ERROR_CODES.has(error?.plaidErrorCode)
+                ? "This bank needs to be reconnected."
+                : "Could not reach this bank."
+            });
+            continue;
+          }
+
           imported += result.imported;
           if (result.pending) pending = true;
-          if (result.cursor && result.cursor !== connection.transactionCursor) {
+          // Skipped transactions mean the cursor would step over data we never
+          // stored, so leave it where it is and let the next sync retry.
+          if (!result.incomplete && result.cursor && result.cursor !== connection.transactionCursor) {
             await prisma.bankConnection.update({
               where: { id: connection.id },
               data: { transactionCursor: result.cursor }
@@ -271,7 +343,7 @@ export function createBank(prisma) {
         }
         // `pending` means at least one bank is still preparing data; the client
         // can tell the user to retry shortly rather than showing an error.
-        res.json({ imported, pending });
+        res.json({ imported, pending, errors });
       } catch (error) {
         console.error("Plaid sync failed:", error);
         res.status(502).json({ error: "Could not sync transactions." });
