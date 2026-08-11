@@ -933,6 +933,7 @@ var ReceiptRing;
                     authSwitchText: this.getElement("#authSwitchText", HTMLElement),
                     authToggle: this.getElement("#authToggle", HTMLButtonElement),
                     logoutButton: this.getElement("#logoutButton", HTMLButtonElement),
+                    monthlyTrend: this.getElement("#monthlyTrend", HTMLElement),
                     budgetMonth: this.getElement("#budgetMonth", HTMLSelectElement),
                     budgetRing: this.getElement("#budgetRing", HTMLElement),
                     budgetLegend: this.getElement("#budgetLegend", HTMLElement),
@@ -1124,6 +1125,69 @@ var ReceiptRing;
             }
         }
         UI.BudgetRingView = BudgetRingView;
+    })(UI = ReceiptRing.UI || (ReceiptRing.UI = {}));
+})(ReceiptRing || (ReceiptRing = {}));
+var ReceiptRing;
+(function (ReceiptRing) {
+    var UI;
+    (function (UI) {
+        class MonthlyTrendView {
+            constructor(currencyFormatService) {
+                this.currencyFormatService = currencyFormatService;
+            }
+            render(container, months, selectedMonth, onSelect) {
+                container.replaceChildren();
+                if (months.length === 0) {
+                    const empty = document.createElement("p");
+                    empty.className = "budget-ring-empty";
+                    empty.textContent = "No spending recorded yet.";
+                    container.append(empty);
+                    return;
+                }
+                const chronological = [...months].reverse();
+                const max = Math.max(...chronological.map((entry) => entry.total));
+                const chart = document.createElement("div");
+                chart.className = "trend-chart";
+                for (const entry of chronological) {
+                    chart.append(this.buildBar(entry, max, entry.month === selectedMonth, onSelect));
+                }
+                container.append(chart);
+            }
+            buildBar(entry, max, isSelected, onSelect) {
+                const column = document.createElement("button");
+                column.type = "button";
+                column.className = "trend-bar-col";
+                column.classList.toggle("is-selected", isSelected);
+                column.setAttribute("aria-pressed", String(isSelected));
+                column.setAttribute("aria-label", `${this.monthLabel(entry.month, true)}: ${this.currencyFormatService.format(entry.total)}`);
+                column.addEventListener("click", () => onSelect(entry.month));
+                const value = document.createElement("span");
+                value.className = "trend-bar-value";
+                value.textContent = this.currencyFormatService.format(entry.total);
+                const track = document.createElement("span");
+                track.className = "trend-bar-track";
+                const fill = document.createElement("span");
+                fill.className = "trend-bar-fill";
+                const percent = max > 0 ? Math.round((entry.total / max) * 100) : 0;
+                fill.style.height = `${percent}%`;
+                track.append(fill);
+                const label = document.createElement("span");
+                label.className = "trend-bar-label";
+                label.textContent = this.monthLabel(entry.month, false);
+                column.append(value, track, label);
+                return column;
+            }
+            monthLabel(key, includeYear) {
+                const [year, month] = key.split("-").map(Number);
+                if (!year || !month)
+                    return key;
+                return new Date(year, month - 1, 1).toLocaleDateString(undefined, {
+                    month: "short",
+                    ...(includeYear ? { year: "numeric" } : {})
+                });
+            }
+        }
+        UI.MonthlyTrendView = MonthlyTrendView;
     })(UI = ReceiptRing.UI || (ReceiptRing.UI = {}));
 })(ReceiptRing || (ReceiptRing = {}));
 var ReceiptRing;
@@ -1458,7 +1522,7 @@ var ReceiptRing;
     var App;
     (function (App) {
         class AppController {
-            constructor(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView) {
+            constructor(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView) {
                 this.elements = elements;
                 this.parserService = parserService;
                 this.categorizationService = categorizationService;
@@ -1475,6 +1539,7 @@ var ReceiptRing;
                 this.bankApiService = bankApiService;
                 this.spendingAggregatorService = spendingAggregatorService;
                 this.budgetRingView = budgetRingView;
+                this.monthlyTrendView = monthlyTrendView;
                 this.receiptLines = [];
                 this.people = [];
                 this.assignments = [];
@@ -1528,8 +1593,7 @@ var ReceiptRing;
                 this.elements.connectBankButton.addEventListener("click", () => void this.connectBank());
                 this.elements.refreshTransactionsButton.addEventListener("click", () => void this.refreshTransactions());
                 this.elements.budgetMonth.addEventListener("change", () => {
-                    this.selectedMonth = this.elements.budgetMonth.value || null;
-                    this.renderRing();
+                    this.selectMonth(this.elements.budgetMonth.value || null);
                 });
                 this.elements.tabButtons.forEach((button) => {
                     button.addEventListener("click", () => this.switchTab(button.dataset.tab));
@@ -2078,6 +2142,7 @@ var ReceiptRing;
                 this.monthlySpend = this.spendingAggregatorService.aggregate(receipts, this.bankTransactions);
                 this.populateMonths();
                 this.renderTransactions();
+                this.renderTrend();
                 this.renderRing();
             }
             populateMonths() {
@@ -2102,6 +2167,15 @@ var ReceiptRing;
             renderRing() {
                 const month = this.monthlySpend.find((entry) => entry.month === this.selectedMonth) ?? null;
                 this.budgetRingView.render(this.elements.budgetRing, this.elements.budgetLegend, month);
+            }
+            renderTrend() {
+                this.monthlyTrendView.render(this.elements.monthlyTrend, this.monthlySpend, this.selectedMonth, (month) => this.selectMonth(month));
+            }
+            selectMonth(month) {
+                this.selectedMonth = month;
+                this.elements.budgetMonth.value = month ?? "";
+                this.renderTrend();
+                this.renderRing();
             }
             formatMonthLabel(key) {
                 const [year, month] = key.split("-").map(Number);
@@ -2212,8 +2286,9 @@ var ReceiptRing;
     const categoryPromptView = new ReceiptRing.UI.CategoryPromptView(categories, elements);
     const splitWorkspaceView = new ReceiptRing.UI.SplitWorkspaceView(currencyFormatService);
     const budgetRingView = new ReceiptRing.UI.BudgetRingView(currencyFormatService);
+    const monthlyTrendView = new ReceiptRing.UI.MonthlyTrendView(currencyFormatService);
     const authView = new ReceiptRing.UI.AuthView(elements, authApiService);
-    const controller = new ReceiptRing.App.AppController(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView);
+    const controller = new ReceiptRing.App.AppController(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView);
     let started = false;
     const startApp = () => {
         if (started)
