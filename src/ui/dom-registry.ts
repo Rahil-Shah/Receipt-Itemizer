@@ -65,6 +65,7 @@ namespace ReceiptRing.UI {
     authSwitchText: HTMLElement;
     authToggle: HTMLButtonElement;
     logoutButton: HTMLButtonElement;
+    monthlyTrend: HTMLElement;
     budgetMonth: HTMLSelectElement;
     budgetRing: HTMLElement;
     budgetLegend: HTMLElement;
@@ -145,6 +146,7 @@ namespace ReceiptRing.UI {
         authSwitchText: this.getElement("#authSwitchText", HTMLElement),
         authToggle: this.getElement("#authToggle", HTMLButtonElement),
         logoutButton: this.getElement("#logoutButton", HTMLButtonElement),
+        monthlyTrend: this.getElement("#monthlyTrend", HTMLElement),
         budgetMonth: this.getElement("#budgetMonth", HTMLSelectElement),
         budgetRing: this.getElement("#budgetRing", HTMLElement),
         budgetLegend: this.getElement("#budgetLegend", HTMLElement),
