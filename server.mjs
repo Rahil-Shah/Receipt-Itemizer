@@ -241,8 +241,20 @@ const BLOCKED = [
   /\.(pem|key|crt|p12|pfx)$/i
 ];
 
+// req.path is NOT url-decoded, but the static handler decodes before it touches
+// the disk. Matching the raw path therefore let a single percent-encoded
+// character walk straight past every rule here — /%73erver/crypto.mjs served
+// the file that /server/crypto.mjs refused. Match on the decoded path (and
+// reject anything that won't decode, or that smuggles a NUL) so the patterns
+// see the same string the filesystem will.
 app.use((req, res, next) => {
-  if (BLOCKED.some((pattern) => pattern.test(req.path))) {
+  let decoded;
+  try {
+    decoded = decodeURIComponent(req.path);
+  } catch {
+    return res.status(400).end();
+  }
+  if (decoded.includes("\0") || BLOCKED.some((pattern) => pattern.test(decoded))) {
     return res.status(404).end();
   }
   next();
@@ -250,6 +262,21 @@ app.use((req, res, next) => {
 
 // dotfiles: "ignore" makes .env (and other dotfiles) return 404.
 app.use(express.static(__dirname, { dotfiles: "ignore", index: "index.html" }));
+
+// Terminal error handler. Without one, Express's default handler renders the
+// stack trace into the response whenever NODE_ENV isn't "production" — so
+// malformed JSON, an oversized body, or any unhandled rejection in a route
+// handed the caller absolute file paths and internal error text. Log the
+// detail, return a flat message.
+app.use((error, _req, res, _next) => {
+  console.error("Unhandled request error:", error);
+  if (res.headersSent) return;
+  const status = Number(error?.status || error?.statusCode) || 500;
+  // Body-parser's own 4xx (bad JSON, payload too large) are the caller's
+  // fault and safe to name; everything else stays opaque.
+  const message = status >= 400 && status < 500 ? "Invalid request." : "Internal server error.";
+  res.status(status).json({ error: message });
+});
 
 app.listen(PORT, () => {
   console.log(`Receipt Ring running at http://localhost:${PORT}`);

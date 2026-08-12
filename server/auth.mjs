@@ -140,9 +140,14 @@ export function createAuth(prisma) {
     });
 
     app.get("/api/auth/me", requireAuth, async (req, res) => {
-      const user = await prisma.user.findUnique({ where: { id: req.userId } });
-      if (!user) return res.status(401).json({ error: "Authentication required." });
-      res.json(publicUser(user));
+      try {
+        const user = await prisma.user.findUnique({ where: { id: req.userId } });
+        if (!user) return res.status(401).json({ error: "Authentication required." });
+        res.json(publicUser(user));
+      } catch (error) {
+        console.error("Failed to load current user:", error);
+        res.status(500).json({ error: "Could not load your account." });
+      }
     });
   }
 
