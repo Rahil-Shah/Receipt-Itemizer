@@ -87,8 +87,16 @@ namespace ReceiptRing.Services {
 
     // Public so callers (e.g. filtering a transaction list to one month) bucket
     // dates exactly the way aggregate() does.
+    //
+    // Two kinds of value arrive here and they need different handling. Bank
+    // transactions carry a calendar date ("YYYY-MM-DD") whose month is simply
+    // what it says. Receipts carry a timestamp of when they were saved, which
+    // has to be read in the user's own zone: taking the UTC month instead put
+    // a receipt saved on the evening of the 31st into the following month's
+    // ring and trend, while History -- formatting the same value locally --
+    // still showed it as the 31st.
     monthKey(dateStr: string): string | null {
-      if (typeof dateStr === "string" && /^\d{4}-\d{2}/.test(dateStr)) {
+      if (typeof dateStr === "string" && /^\d{4}-\d{2}(-\d{2})?$/.test(dateStr)) {
         return dateStr.slice(0, 7);
       }
       const date = new Date(dateStr);

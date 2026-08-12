@@ -844,7 +844,7 @@ var ReceiptRing;
                     .sort((a, b) => (a.month < b.month ? 1 : -1));
             }
             monthKey(dateStr) {
-                if (typeof dateStr === "string" && /^\d{4}-\d{2}/.test(dateStr)) {
+                if (typeof dateStr === "string" && /^\d{4}-\d{2}(-\d{2})?$/.test(dateStr)) {
                     return dateStr.slice(0, 7);
                 }
                 const date = new Date(dateStr);
