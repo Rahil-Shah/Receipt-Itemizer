@@ -2266,6 +2266,13 @@ var ReceiptRing;
                     year: "numeric"
                 });
             }
+            formatTransactionDate(value) {
+                const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+                if (!match)
+                    return new Date(value).toLocaleDateString();
+                const [, year, month, day] = match;
+                return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString();
+            }
             renderTransactions() {
                 const list = this.elements.transactionsList;
                 const transactions = this.selectedMonth
@@ -2284,7 +2291,7 @@ var ReceiptRing;
                     desc.textContent = txn.description ?? "Transaction";
                     const meta = document.createElement("span");
                     meta.className = "transaction-meta";
-                    const date = new Date(txn.date).toLocaleDateString();
+                    const date = this.formatTransactionDate(txn.date);
                     meta.textContent = txn.category ? `${date} · ${txn.category}` : date;
                     main.append(desc, meta);
                     const amount = document.createElement("span");

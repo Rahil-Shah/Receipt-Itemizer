@@ -867,6 +867,17 @@ namespace ReceiptRing.App {
       });
     }
 
+    // Bank transactions carry a calendar date ("YYYY-MM-DD"), which must be
+    // rendered as that same day everywhere. Handing it to `new Date(...)` would
+    // read it as UTC midnight and print the day before for anyone west of UTC,
+    // so build the date from its parts in local time instead.
+    private formatTransactionDate(value: string): string {
+      const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+      if (!match) return new Date(value).toLocaleDateString();
+      const [, year, month, day] = match;
+      return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString();
+    }
+
     private renderTransactions(): void {
       const list = this.elements.transactionsList;
       // Scope the list to the month the rest of the view is focused on so the
@@ -891,7 +902,7 @@ namespace ReceiptRing.App {
         desc.textContent = txn.description ?? "Transaction";
         const meta = document.createElement("span");
         meta.className = "transaction-meta";
-        const date = new Date(txn.date).toLocaleDateString();
+        const date = this.formatTransactionDate(txn.date);
         meta.textContent = txn.category ? `${date} · ${txn.category}` : date;
         main.append(desc, meta);
 

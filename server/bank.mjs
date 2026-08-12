@@ -411,7 +411,11 @@ export function createBank(prisma) {
         res.json(
           transactions.map((txn) => ({
             id: txn.id,
-            date: txn.date,
+            // A transaction date is a calendar date, not an instant. Sending
+            // the full timestamp made the browser re-interpret UTC midnight in
+            // its own zone, showing every row a day early west of UTC. Send
+            // "YYYY-MM-DD" so the wire format carries the right semantics.
+            date: txn.date.toISOString().slice(0, 10),
             description: txn.description,
             amount: Number(txn.amount),
             category: txn.category,
