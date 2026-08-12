@@ -11,9 +11,11 @@
 
 import https from "node:https";
 
+// Plaid retired the Development environment; sandbox and production are the
+// only ones that still serve, so an unrecognised PLAID_ENV falls back to
+// sandbox rather than pointing at a host that no longer answers.
 const PLAID_HOSTS = {
   sandbox: "sandbox.plaid.com",
-  development: "development.plaid.com",
   production: "production.plaid.com"
 };
 

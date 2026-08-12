@@ -19,7 +19,7 @@ To use the advanced AI features of Gemini for parsing receipt items, the applica
      ```env
      GEMINI_API_KEY=your_actual_api_key_here
      ```
-4. **Browser Local Storage**: Alternatively, you can configure your API key directly in the application's UI settings panel, which saves it securely in your browser's local storage.
+4. **Per-user keys**: Alternatively, you can add your own Gemini API key from the settings panel. It is stored server-side, encrypted at rest with AES-256-GCM, and is never sent back to the browser — the app only ever reports whether a key exists. Without one, requests fall back to the shared `GEMINI_API_KEY` from `.env`.
 
 ---
 
@@ -67,10 +67,19 @@ To use the advanced AI features of Gemini for parsing receipt items, the applica
    Open `.env` and replace `your_gemini_api_key_here` with your real Gemini API key. The
    `DATABASE_URL` is pre-filled to match the bundled Docker Postgres.
 
+   Then generate the two secrets the server refuses to start without —
+   `AUTH_SESSION_SECRET` and `TOKEN_ENCRYPTION_KEY`. The placeholders in
+   `.env.example` are not valid keys:
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+   ```
+   Run it once for each and paste the results in. Keep `TOKEN_ENCRYPTION_KEY` stable —
+   rotating it makes already-stored bank tokens undecryptable.
+
    To enable the optional **bank connection**, add your [Plaid](https://dashboard.plaid.com/)
    credentials — `PLAID_CLIENT_ID` and `PLAID_SECRET`. `PLAID_ENV` defaults to `sandbox`
-   (fake data); switch to `development` or `production` with the matching secret to link real
-   banks — no code change required. Leave these blank to run without bank import.
+   (fake data); switch to `production` with the matching secret to link real banks — no
+   code change required. Leave these blank to run without bank import.
 
 ### Running the App Locally
 
