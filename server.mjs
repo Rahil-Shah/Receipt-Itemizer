@@ -2,6 +2,7 @@ import "dotenv/config";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import express from "express";
+import cookieParser from "cookie-parser";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { assertCryptoEnv } from "./server/crypto.mjs";
@@ -53,15 +54,14 @@ app.use((_req, res, next) => {
   next();
 });
 
-// Receipt photos arrive as base64 JSON on the Gemini proxy route, so it needs
-// a larger body cap than the rest of the API (body-parser skips re-parsing, so
-// mounting the bigger limit first scopes it to this path only). The route is
-// auth-gated and rate-limited, bounding abuse.
-app.use("/api/gemini/parse", express.json({ limit: "16mb" }));
-app.use(express.json({ limit: "2mb" }));
-
 // Broad limit across the whole API, plus a much stricter limit on the auth
 // endpoints to slow credential stuffing and mass account creation.
+//
+// These run BEFORE any body parser. Mounted after, they could not help: the
+// 16mb parser below would have already buffered and JSON.parsed the entire
+// body of an unauthenticated request before the limiter or the 401 was
+// reached, so a handful of concurrent posts to the Gemini route could exhaust
+// memory without so much as a cookie.
 app.use("/api", createRateLimiter({ windowMs: 15 * 60 * 1000, max: 300 }));
 const authLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
@@ -72,8 +72,23 @@ app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 
 const auth = createAuth(prisma);
-auth.register(app);
 const { requireAuth } = auth;
+
+// Cookies are parsed here rather than inside auth.register() because
+// requireAuth reads them, and it now gates a middleware that runs before the
+// route table.
+app.use(cookieParser());
+
+// Receipt photos arrive as base64 JSON on the Gemini proxy route, so it needs
+// a larger body cap than the rest of the API (body-parser skips re-parsing, so
+// mounting the bigger limit first scopes it to this path only). requireAuth
+// gates the big parser, so only a logged-in user can make the server hold
+// 16mb of request body.
+app.use("/api/gemini/parse", requireAuth, express.json({ limit: "16mb" }));
+app.use(express.json({ limit: "2mb" }));
+
+// Routes last, so every request reaching one has been limited and parsed.
+auth.register(app);
 
 const bank = createBank(prisma);
 bank.register(app, requireAuth);

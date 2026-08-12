@@ -4,7 +4,6 @@
 // Only the SHA-256 hash of the token is persisted, so a database leak does not
 // expose usable sessions. Login is rate-limited in memory to blunt brute force.
 
-import cookieParser from "cookie-parser";
 import {
   hashPassword,
   verifyPassword,
@@ -84,9 +83,10 @@ export function createAuth(prisma) {
     }
   };
 
+  // Registers routes only. The cookie parser requireAuth depends on is mounted
+  // by the server alongside the other global middleware, because requireAuth is
+  // also used to gate middleware that runs before any route.
   function register(app) {
-    app.use(cookieParser());
-
     app.post("/api/auth/register", async (req, res) => {
       const email = String(req.body?.email ?? "").trim().toLowerCase();
       const password = String(req.body?.password ?? "");
