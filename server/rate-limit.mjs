@@ -4,6 +4,10 @@
 // general request floods. It is per-process; for multi-instance deployments
 // put a shared limiter (or the platform's) in front as well.
 
+// Hard ceiling on tracked keys. Past this we evict the oldest-resetting entries
+// rather than letting the map grow without bound.
+const MAX_KEYS = 20_000;
+
 export function createRateLimiter({ windowMs, max, message } = {}) {
   const limit = Number(max) || 100;
   const window = Number(windowMs) || 60_000;
@@ -15,12 +19,30 @@ export function createRateLimiter({ windowMs, max, message } = {}) {
     }
   }
 
+  // Sweep on a timer rather than per-request. The old check ran sweep() from
+  // the request path whenever the map held more than 5000 entries, but sweep
+  // only removes *expired* entries -- so with more than 5000 keys live inside
+  // the window it freed nothing, stayed over the threshold, and made every
+  // subsequent request walk the whole map. unref() so this never holds the
+  // process open.
+  setInterval(() => sweep(Date.now()), window).unref();
+
   return function rateLimit(req, res, next) {
     const now = Date.now();
-    // Bound memory: occasionally drop expired entries.
-    if (hits.size > 5000) sweep(now);
 
     const key = req.ip || req.socket?.remoteAddress || "unknown";
+    // A flood of distinct keys (trivial on IPv6) can outrun the sweep timer.
+    // Evict the entries closest to expiry to keep the map bounded.
+    if (hits.size >= MAX_KEYS && !hits.has(key)) {
+      sweep(now);
+      if (hits.size >= MAX_KEYS) {
+        const victims = [...hits.entries()]
+          .sort((a, b) => a[1].reset - b[1].reset)
+          .slice(0, Math.ceil(MAX_KEYS / 10));
+        for (const [victim] of victims) hits.delete(victim);
+      }
+    }
+
     let entry = hits.get(key);
     if (!entry || now > entry.reset) {
       entry = { count: 0, reset: now + window };

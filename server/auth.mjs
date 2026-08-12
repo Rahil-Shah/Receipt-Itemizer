@@ -22,6 +22,16 @@ const MAX_ATTEMPTS = 10;
 const ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
 const loginAttempts = new Map();
 
+// Entries used to be removed only by clearAttempts() on a *successful* login,
+// so every failed attempt against a non-existent account leaked a map entry
+// for the life of the process. Expire them on a timer instead.
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of loginAttempts) {
+    if (now - entry.first > ATTEMPT_WINDOW_MS) loginAttempts.delete(key);
+  }
+}, ATTEMPT_WINDOW_MS).unref();
+
 function tooManyAttempts(key) {
   const now = Date.now();
   const entry = loginAttempts.get(key);
@@ -45,6 +55,23 @@ export function createAuth(prisma) {
   // Built once at startup so login can compare against something real when
   // there is no account (or no stored hash) to compare against.
   const dummyHash = dummyPasswordHash();
+
+  // Expired sessions were only ever deleted if that exact token was presented
+  // again after expiry -- which a browser never does, because the cookie's
+  // maxAge matches the session TTL and it drops the cookie first. So the table
+  // grew by one unreachable row per login, forever. Purge on a timer.
+  const purgeExpiredSessions = async () => {
+    try {
+      const { count } = await prisma.session.deleteMany({
+        where: { expiresAt: { lt: new Date() } }
+      });
+      if (count > 0) console.log(`Purged ${count} expired session(s).`);
+    } catch (error) {
+      console.error("Failed to purge expired sessions:", error);
+    }
+  };
+  setInterval(purgeExpiredSessions, 60 * 60 * 1000).unref();
+  void purgeExpiredSessions();
 
   function cookieOptions(req) {
     const secure = req.secure || req.headers["x-forwarded-proto"] === "https";
