@@ -5,7 +5,13 @@
 // expose usable sessions. Login is rate-limited in memory to blunt brute force.
 
 import cookieParser from "cookie-parser";
-import { hashPassword, verifyPassword, generateSessionToken, hashToken } from "./crypto.mjs";
+import {
+  hashPassword,
+  verifyPassword,
+  generateSessionToken,
+  hashToken,
+  dummyPasswordHash
+} from "./crypto.mjs";
 
 const SESSION_COOKIE = "rr_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
@@ -37,6 +43,10 @@ function publicUser(user) {
 }
 
 export function createAuth(prisma) {
+  // Built once at startup so login can compare against something real when
+  // there is no account (or no stored hash) to compare against.
+  const dummyHash = dummyPasswordHash();
+
   function cookieOptions(req) {
     const secure = req.secure || req.headers["x-forwarded-proto"] === "https";
     return { httpOnly: true, sameSite: "lax", secure, maxAge: SESSION_TTL_MS, path: "/" };
@@ -116,9 +126,15 @@ export function createAuth(prisma) {
 
       try {
         const user = await prisma.user.findUnique({ where: { email } });
-        // Always run verify to keep timing uniform whether or not the user exists.
-        const ok = await verifyPassword(password, user?.passwordHash ?? "scrypt$00$00");
-        if (!user || !ok) {
+        // Always run verify to keep timing uniform whether or not the user
+        // exists. The stand-in must be a real hash: the previous placeholder
+        // ("scrypt$00$00") decoded to a single expected byte, so a random
+        // password matched it roughly 1 try in 256 -- which logged an attacker
+        // straight into any account whose passwordHash was NULL.
+        const stored = user?.passwordHash;
+        const ok = await verifyPassword(password, stored ?? (await dummyHash));
+        // An account with no password set cannot be logged into with one.
+        if (!user || !stored || !ok) {
           return res.status(401).json({ error: "Invalid email or password." });
         }
         clearAttempts(throttleKey);
