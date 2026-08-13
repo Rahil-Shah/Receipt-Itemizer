@@ -191,6 +191,7 @@ function validateReceiptPayload(body) {
     if (!person || typeof person !== "object") return "Each person must be an object.";
     if (!isShortString(person.name)) return "Each person needs a name of 1-200 characters.";
   }
+  const seenPairs = new Set();
   for (const assignment of body.assignments ?? []) {
     if (!assignment || typeof assignment !== "object") return "Each assignment must be an object.";
     if (assignment.mode !== undefined && !ASSIGNMENT_MODES.has(assignment.mode)) {
@@ -199,6 +200,11 @@ function validateReceiptPayload(body) {
     if (assignment.value !== undefined && !isStorableAmount(assignment.value)) {
       return "Each assignment value must be a number within range.";
     }
+    // One share per person per line — matches the unique constraint, so a
+    // repeated pair answers 400 rather than tripping a database error.
+    const pair = `${assignment.lineClientId} ${assignment.personClientId}`;
+    if (seenPairs.has(pair)) return "A line cannot be assigned to the same person twice.";
+    seenPairs.add(pair);
   }
   return null;
 }

@@ -121,6 +121,7 @@ model Receipt {
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
+  @@index([userId])
   @@map("receipts")
 }
 
@@ -139,6 +140,7 @@ model ReceiptLine {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
+  @@index([receiptId])
   @@map("receipt_lines")
 }
 
@@ -151,6 +153,7 @@ model Person {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
+  @@index([receiptId])
   @@map("people")
 }
 
@@ -165,5 +168,8 @@ model LineAssignment {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
+  @@unique([lineId, personId])
+  @@index([lineId])
+  @@index([personId])
   @@map("line_assignments")
 }
