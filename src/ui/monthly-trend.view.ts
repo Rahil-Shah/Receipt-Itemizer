@@ -8,6 +8,12 @@ namespace ReceiptRing.UI {
       selectedMonth: string | null,
       onSelect: (month: string) => void
     ): void {
+      // Selecting a month re-renders the chart, which discards the very button
+      // the user just activated and drops focus to <body> -- so tabbing to a
+      // bar and pressing Enter lost the keyboard position entirely. Note
+      // whether focus was inside the chart and restore it afterwards.
+      const hadFocus = container.contains(document.activeElement);
+
       container.replaceChildren();
 
       if (months.length === 0) {
@@ -25,11 +31,18 @@ namespace ReceiptRing.UI {
       const chart = document.createElement("div");
       chart.className = "trend-chart";
 
+      let selectedBar: HTMLElement | null = null;
       for (const entry of chronological) {
-        chart.append(this.buildBar(entry, max, entry.month === selectedMonth, onSelect));
+        const bar = this.buildBar(entry, max, entry.month === selectedMonth, onSelect);
+        if (entry.month === selectedMonth) selectedBar = bar;
+        chart.append(bar);
       }
 
       container.append(chart);
+
+      if (hadFocus && selectedBar) {
+        selectedBar.focus();
+      }
     }
 
     private buildBar(

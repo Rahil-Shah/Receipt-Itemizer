@@ -1159,6 +1159,7 @@ var ReceiptRing;
                 this.currencyFormatService = currencyFormatService;
             }
             render(container, months, selectedMonth, onSelect) {
+                const hadFocus = container.contains(document.activeElement);
                 container.replaceChildren();
                 if (months.length === 0) {
                     const empty = document.createElement("p");
@@ -1171,10 +1172,17 @@ var ReceiptRing;
                 const max = Math.max(...chronological.map((entry) => entry.total));
                 const chart = document.createElement("div");
                 chart.className = "trend-chart";
+                let selectedBar = null;
                 for (const entry of chronological) {
-                    chart.append(this.buildBar(entry, max, entry.month === selectedMonth, onSelect));
+                    const bar = this.buildBar(entry, max, entry.month === selectedMonth, onSelect);
+                    if (entry.month === selectedMonth)
+                        selectedBar = bar;
+                    chart.append(bar);
                 }
                 container.append(chart);
+                if (hadFocus && selectedBar) {
+                    selectedBar.focus();
+                }
             }
             buildBar(entry, max, isSelected, onSelect) {
                 const column = document.createElement("button");
@@ -1225,8 +1233,18 @@ var ReceiptRing;
         class SplitWorkspaceView {
             constructor(currencyFormatService) {
                 this.currencyFormatService = currencyFormatService;
+                this.panelListeners = null;
             }
             renderLines(container, lines, assignments, people, lineModes, handlers) {
+                const openLineIds = new Set();
+                container
+                    .querySelectorAll("details.assign-dropdown[open]")
+                    .forEach((dropdown) => {
+                    if (dropdown.dataset.lineId)
+                        openLineIds.add(dropdown.dataset.lineId);
+                });
+                this.panelListeners?.abort();
+                this.panelListeners = new AbortController();
                 container.innerHTML = "";
                 lines.forEach((line) => {
                     const row = document.createElement("div");
@@ -1237,7 +1255,8 @@ var ReceiptRing;
                     name.textContent = line.label;
                     const assignCell = document.createElement("div");
                     assignCell.className = "assign-cell";
-                    assignCell.append(this.buildAssignDropdown(line, assignments, people, lineModes, handlers));
+                    const dropdown = this.buildAssignDropdown(line, assignments, people, lineModes, handlers);
+                    assignCell.append(dropdown);
                     const amount = document.createElement("span");
                     amount.className = "amount-cell";
                     amount.textContent = this.currencyFormatService.format(line.amount);
@@ -1249,6 +1268,9 @@ var ReceiptRing;
                     ignore.addEventListener("click", () => handlers.onLineIgnore(line.id));
                     row.append(name, assignCell, amount, ignore);
                     container.append(row);
+                    if (openLineIds.has(line.id)) {
+                        dropdown.open = true;
+                    }
                 });
             }
             buildAssignDropdown(line, assignments, people, lineModes, handlers) {
@@ -1256,6 +1278,7 @@ var ReceiptRing;
                 const mode = lineModes.get(line.id) ?? "equal";
                 const details = document.createElement("details");
                 details.className = "assign-dropdown";
+                details.dataset.lineId = line.id;
                 const summary = document.createElement("summary");
                 summary.className = "assign-summary";
                 summary.textContent = this.getAssignmentSummary(lineAssignments, people);
@@ -1273,8 +1296,9 @@ var ReceiptRing;
                     if (details.open) {
                         this.closeOtherDropdowns(details);
                         this.positionPanel(summary, panel);
-                        window.addEventListener("scroll", reposition, true);
-                        window.addEventListener("resize", reposition);
+                        const signal = this.panelListeners?.signal;
+                        window.addEventListener("scroll", reposition, { capture: true, signal });
+                        window.addEventListener("resize", reposition, { signal });
                     }
                     else {
                         this.teardownPanelPositioning(reposition);
