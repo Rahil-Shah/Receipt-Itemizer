@@ -1599,6 +1599,8 @@ var ReceiptRing;
                 this.bindEvents();
             }
             prompt(item) {
+                this.activeResolve?.(null);
+                this.activeResolve = null;
                 this.elements.categoryPromptItem.textContent = item.label;
                 this.elements.categoryPromptSelect.value = item.category;
                 this.elements.categoryPromptRemember.checked = false;
@@ -1620,11 +1622,38 @@ var ReceiptRing;
             bindEvents() {
                 this.elements.categoryPromptSave.addEventListener("click", () => this.resolvePrompt());
                 this.elements.categoryPromptSkip.addEventListener("click", () => this.closePrompt(null));
-                this.elements.categoryPrompt.addEventListener("keydown", (event) => {
+                document.addEventListener("keydown", (event) => {
+                    if (this.activeResolve === null)
+                        return;
                     if (event.key === "Escape") {
+                        this.closePrompt(null);
+                        return;
+                    }
+                    if (event.key === "Tab") {
+                        this.keepFocusInDialog(event);
+                    }
+                });
+                this.elements.categoryPrompt.addEventListener("click", (event) => {
+                    if (event.target === this.elements.categoryPrompt) {
                         this.closePrompt(null);
                     }
                 });
+            }
+            keepFocusInDialog(event) {
+                const focusable = this.elements.categoryPrompt.querySelectorAll("select, input, button, [href], textarea, [tabindex]:not([tabindex='-1'])");
+                if (focusable.length === 0)
+                    return;
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                const active = document.activeElement;
+                if (event.shiftKey && (active === first || !this.elements.categoryPrompt.contains(active))) {
+                    event.preventDefault();
+                    last.focus();
+                }
+                else if (!event.shiftKey && (active === last || !this.elements.categoryPrompt.contains(active))) {
+                    event.preventDefault();
+                    first.focus();
+                }
             }
             resolvePrompt() {
                 this.closePrompt({
