@@ -460,28 +460,38 @@ var ReceiptRing;
     (function (Services) {
         class SplitCalculatorService {
             calculate(people, lines, assignments, tax) {
-                const itemTotals = new Map();
-                people.forEach((person) => itemTotals.set(person.id, 0));
+                const itemCents = new Map();
+                people.forEach((person) => itemCents.set(person.id, 0));
+                let unallocatedCents = 0;
                 lines
                     .filter((line) => !line.ignored)
                     .forEach((line) => {
                     const lineAssignments = assignments.filter((assignment) => assignment.lineId === line.id);
-                    this.getLineShares(line, lineAssignments).forEach((amount, personId) => {
-                        itemTotals.set(personId, (itemTotals.get(personId) ?? 0) + amount);
+                    if (lineAssignments.length === 0)
+                        return;
+                    const shares = this.getLineShares(line, lineAssignments);
+                    let allocated = 0;
+                    shares.forEach((cents, personId) => {
+                        itemCents.set(personId, (itemCents.get(personId) ?? 0) + cents);
+                        allocated += cents;
                     });
+                    unallocatedCents += this.toCents(line.amount) - allocated;
                 });
-                const subtotal = Array.from(itemTotals.values()).reduce((sum, value) => sum + value, 0);
-                return people.map((person) => {
-                    const itemTotal = itemTotals.get(person.id) ?? 0;
-                    const allocatedTax = subtotal > 0 ? (itemTotal / subtotal) * tax : 0;
+                const orderedPeople = [...people];
+                const weights = orderedPeople.map((person) => itemCents.get(person.id) ?? 0);
+                const taxShares = this.distributeProportionally(this.toCents(tax), weights);
+                const totals = orderedPeople.map((person, index) => {
+                    const itemTotal = weights[index];
+                    const allocatedTax = taxShares[index];
                     return {
                         personId: person.id,
                         personName: person.name,
-                        itemTotal,
-                        allocatedTax,
-                        finalTotal: itemTotal + allocatedTax
+                        itemTotal: this.toAmount(itemTotal),
+                        allocatedTax: this.toAmount(allocatedTax),
+                        finalTotal: this.toAmount(itemTotal + allocatedTax)
                     };
                 });
+                return { totals, unallocated: this.toAmount(unallocatedCents) };
             }
             getUnassignedCount(lines, assignments) {
                 return lines.filter((line) => !line.ignored && !assignments.some((assignment) => assignment.lineId === line.id)).length;
@@ -490,23 +500,66 @@ var ReceiptRing;
                 const shares = new Map();
                 if (assignments.length === 0)
                     return shares;
+                const lineCents = this.toCents(line.amount);
                 if (assignments.every((assignment) => assignment.mode === "equal")) {
-                    const share = line.amount / assignments.length;
-                    assignments.forEach((assignment) => shares.set(assignment.personId, share));
+                    const even = this.distributeEvenly(lineCents, assignments.length);
+                    assignments.forEach((assignment, index) => shares.set(assignment.personId, even[index]));
                     return shares;
                 }
+                const equalCount = assignments.filter((assignment) => assignment.mode === "equal").length;
+                const equalShares = equalCount > 0 ? this.distributeEvenly(lineCents, assignments.length) : [];
+                let equalIndex = 0;
                 assignments.forEach((assignment) => {
                     if (assignment.mode === "percentage") {
-                        shares.set(assignment.personId, line.amount * (assignment.value / 100));
+                        shares.set(assignment.personId, Math.round(lineCents * (assignment.value / 100)));
                     }
                     else if (assignment.mode === "amount") {
-                        shares.set(assignment.personId, assignment.value);
+                        shares.set(assignment.personId, this.toCents(assignment.value));
                     }
                     else {
-                        shares.set(assignment.personId, line.amount / assignments.length);
+                        shares.set(assignment.personId, equalShares[equalIndex]);
+                        equalIndex += 1;
                     }
                 });
                 return shares;
+            }
+            distributeEvenly(totalCents, count) {
+                if (count <= 0)
+                    return [];
+                const base = Math.trunc(totalCents / count);
+                let remainder = totalCents - base * count;
+                const step = remainder < 0 ? -1 : 1;
+                return Array.from({ length: count }, () => {
+                    if (remainder === 0)
+                        return base;
+                    remainder -= step;
+                    return base + step;
+                });
+            }
+            distributeProportionally(totalCents, weights) {
+                const weightSum = weights.reduce((sum, weight) => sum + weight, 0);
+                if (weightSum === 0 || totalCents === 0)
+                    return weights.map(() => 0);
+                const exact = weights.map((weight) => (weight / weightSum) * totalCents);
+                const result = exact.map((value) => Math.trunc(value));
+                let remainder = totalCents - result.reduce((sum, value) => sum + value, 0);
+                const step = remainder < 0 ? -1 : 1;
+                const byFraction = exact
+                    .map((value, index) => ({ index, fraction: Math.abs(value - result[index]) }))
+                    .sort((left, right) => right.fraction - left.fraction);
+                for (const { index } of byFraction) {
+                    if (remainder === 0)
+                        break;
+                    result[index] += step;
+                    remainder -= step;
+                }
+                return result;
+            }
+            toCents(value) {
+                return Number.isFinite(value) ? Math.round(value * 100) : 0;
+            }
+            toAmount(cents) {
+                return cents / 100;
             }
         }
         Services.SplitCalculatorService = SplitCalculatorService;
@@ -1381,9 +1434,9 @@ var ReceiptRing;
                     container.append(row);
                 });
             }
-            renderTotals(container, totals) {
+            renderTotals(container, summary) {
                 container.innerHTML = "";
-                totals.forEach((total) => {
+                summary.totals.forEach((total) => {
                     const row = document.createElement("div");
                     row.className = "split-total-row";
                     const name = document.createElement("strong");
@@ -1397,6 +1450,19 @@ var ReceiptRing;
                     row.append(name, items, tax, final);
                     container.append(row);
                 });
+                if (Math.abs(summary.unallocated) >= 0.01) {
+                    const row = document.createElement("div");
+                    row.className = "split-total-row is-unallocated";
+                    const name = document.createElement("strong");
+                    name.textContent = "Unallocated";
+                    const detail = document.createElement("span");
+                    detail.textContent = "Not covered by the amounts entered";
+                    const spacer = document.createElement("span");
+                    const value = document.createElement("b");
+                    value.textContent = this.currencyFormatService.format(summary.unallocated);
+                    row.append(name, detail, spacer, value);
+                    container.append(row);
+                }
             }
             renderHistory(container, receipts, onDelete) {
                 container.innerHTML = "";

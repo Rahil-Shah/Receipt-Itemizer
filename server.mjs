@@ -138,7 +138,8 @@ const MAX_ASSIGNMENTS = 5000;
 const MAX_TEXT_LENGTH = 200;
 // DECIMAL(10,2) tops out at 99,999,999.99; stay well inside it.
 const MAX_AMOUNT = 1e8;
-const ASSIGNMENT_MODES = new Set(["equal", "percent", "amount"]);
+// Must match Domain.AssignmentMode in src/domain/models.ts.
+const ASSIGNMENT_MODES = new Set(["equal", "percentage", "amount"]);
 
 // Thrown from inside the save transaction to roll it back and answer 400.
 class BadRequestError extends Error {}

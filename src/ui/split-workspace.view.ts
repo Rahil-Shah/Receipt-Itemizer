@@ -212,9 +212,9 @@ namespace ReceiptRing.UI {
       });
     }
 
-    renderTotals(container: HTMLElement, totals: readonly Domain.PersonSplitTotal[]): void {
+    renderTotals(container: HTMLElement, summary: Domain.SplitSummary): void {
       container.innerHTML = "";
-      totals.forEach((total) => {
+      summary.totals.forEach((total) => {
         const row = document.createElement("div");
         row.className = "split-total-row";
 
@@ -232,6 +232,25 @@ namespace ReceiptRing.UI {
         row.append(name, items, tax, final);
         container.append(row);
       });
+
+      // Custom amounts and percentages can leave part of a line on nobody's
+      // tab. Say so, rather than letting the shares quietly total less than
+      // the receipt.
+      if (Math.abs(summary.unallocated) >= 0.01) {
+        const row = document.createElement("div");
+        row.className = "split-total-row is-unallocated";
+
+        const name = document.createElement("strong");
+        name.textContent = "Unallocated";
+        const detail = document.createElement("span");
+        detail.textContent = "Not covered by the amounts entered";
+        const spacer = document.createElement("span");
+        const value = document.createElement("b");
+        value.textContent = this.currencyFormatService.format(summary.unallocated);
+
+        row.append(name, detail, spacer, value);
+        container.append(row);
+      }
     }
 
     renderHistory(

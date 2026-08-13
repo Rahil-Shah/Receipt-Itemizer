@@ -951,6 +951,13 @@ input[type="number"] {
   color: var(--accent);
 }
 
+/* Money on assigned lines that the entered amounts don't cover. Warning-toned
+   so it reads as something to fix, not as another person's share. */
+.split-total-row.is-unallocated strong,
+.split-total-row.is-unallocated b {
+  color: var(--amber);
+}
+
 /* ---------------- Save panel ---------------- */
 .save-panel {
   display: grid;
