@@ -257,7 +257,11 @@ var ReceiptRing;
                     category,
                     createdAt: new Date().toISOString()
                 };
-                localStorage.setItem(this.storageKey, JSON.stringify(rules));
+                try {
+                    localStorage.setItem(this.storageKey, JSON.stringify(rules));
+                }
+                catch {
+                }
             }
             normalizeLabel(label) {
                 return label
@@ -271,7 +275,10 @@ var ReceiptRing;
             loadRules() {
                 try {
                     const rawRules = localStorage.getItem(this.storageKey);
-                    return rawRules ? JSON.parse(rawRules) : {};
+                    const parsed = rawRules ? JSON.parse(rawRules) : {};
+                    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+                        ? parsed
+                        : {};
                 }
                 catch {
                     return {};
@@ -516,14 +523,19 @@ var ReceiptRing;
             load() {
                 try {
                     const rawValue = localStorage.getItem(this.storageKey);
-                    return rawValue ? JSON.parse(rawValue) : [];
+                    const parsed = rawValue ? JSON.parse(rawValue) : [];
+                    return Array.isArray(parsed) ? parsed : [];
                 }
                 catch {
                     return [];
                 }
             }
             save(items) {
-                localStorage.setItem(this.storageKey, JSON.stringify(items));
+                try {
+                    localStorage.setItem(this.storageKey, JSON.stringify(items));
+                }
+                catch {
+                }
             }
         }
         Services.StorageService = StorageService;
@@ -1682,6 +1694,7 @@ var ReceiptRing;
             }
             handleImageInput() {
                 const file = this.elements.receiptImage.files?.[0];
+                this.elements.receiptImage.value = "";
                 if (file) {
                     this.processReceiptImage(file);
                 }

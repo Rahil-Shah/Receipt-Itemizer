@@ -126,6 +126,10 @@ namespace ReceiptRing.App {
 
     private handleImageInput(): void {
       const file = this.elements.receiptImage.files?.[0];
+      // Clear the input once the file is in hand. Otherwise picking the *same*
+      // file again fires no change event, so retrying after a failed parse did
+      // nothing at all and the app looked dead.
+      this.elements.receiptImage.value = "";
       if (file) {
         this.processReceiptImage(file);
       }

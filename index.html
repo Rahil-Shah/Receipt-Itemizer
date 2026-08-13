@@ -345,7 +345,11 @@
       </section>
     </div>
 
-    <div class="auth-overlay" id="authOverlay">
+    <!-- Starts hidden: the overlay paints an opaque full-screen panel, so
+         shipping it visible flashed the login card at every already-signed-in
+         user for the length of the /api/auth/me round-trip. main.ts shows it
+         only when that check fails. -->
+    <div class="auth-overlay hidden" id="authOverlay">
       <section class="auth-card">
         <div class="auth-brand">
           <span class="brand-logo" aria-hidden="true">

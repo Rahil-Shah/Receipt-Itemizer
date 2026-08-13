@@ -17,7 +17,12 @@ namespace ReceiptRing.Services {
         category,
         createdAt: new Date().toISOString()
       };
-      localStorage.setItem(this.storageKey, JSON.stringify(rules));
+      try {
+        localStorage.setItem(this.storageKey, JSON.stringify(rules));
+      } catch {
+        // Losing the remembered rule is survivable; aborting the review loop
+        // mid-way through the user's receipt is not.
+      }
     }
 
     normalizeLabel(label: string): string {
@@ -33,7 +38,13 @@ namespace ReceiptRing.Services {
     private loadRules(): Record<string, Domain.StoredCategoryRule> {
       try {
         const rawRules = localStorage.getItem(this.storageKey);
-        return rawRules ? (JSON.parse(rawRules) as Record<string, Domain.StoredCategoryRule>) : {};
+        const parsed = rawRules ? JSON.parse(rawRules) : {};
+        // A stored literal "null" parses to null, which the old cast let
+        // through -- and getCategoryFor indexes the result immediately,
+        // outside any try/catch.
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+          ? (parsed as Record<string, Domain.StoredCategoryRule>)
+          : {};
       } catch {
         return {};
       }
