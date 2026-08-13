@@ -8,7 +8,8 @@ import {
   exchangePublicToken,
   getAccounts,
   syncTransactions,
-  removeItem
+  removeItem,
+  getItem
 } from "./plaid.mjs";
 import { encryptSecret, decryptSecret } from "./crypto.mjs";
 
@@ -42,6 +43,39 @@ export function createBank(prisma) {
         );
       } catch (error) {
         console.warn("Could not release Plaid item:", error?.message ?? error);
+      }
+    }
+  }
+
+  // Fill in institutionId for a user's connections stored before we recorded
+  // it. Without this, an existing connection can never match a re-link of the
+  // same bank, so the duplicate-import it is meant to prevent would happen once
+  // more for anyone who linked before this field existed. Best-effort: a
+  // connection we cannot ask about is simply left alone.
+  async function backfillInstitutionIds(userId) {
+    const stale = await prisma.bankConnection.findMany({
+      where: { userId, institutionId: null },
+      select: { id: true, encryptedToken: true, tokenIv: true, tokenAuthTag: true }
+    });
+
+    for (const connection of stale) {
+      try {
+        const item = await getItem(
+          decryptSecret({
+            ciphertext: connection.encryptedToken,
+            iv: connection.tokenIv,
+            authTag: connection.tokenAuthTag
+          })
+        );
+        const institutionId = item?.item?.institution_id ?? null;
+        if (institutionId) {
+          await prisma.bankConnection.update({
+            where: { id: connection.id },
+            data: { institutionId }
+          });
+        }
+      } catch (error) {
+        console.warn("Could not backfill institution for connection:", connection.id, error?.message ?? error);
       }
     }
   }
@@ -246,6 +280,9 @@ export function createBank(prisma) {
         // (cascading their accounts and transactions) in the same transaction
         // that creates the new one, so the user is never left with two copies
         // or with none.
+        // Make sure older connections know their institution before matching.
+        await backfillInstitutionIds(req.userId);
+
         const supersededFilters = [];
         if (itemId) supersededFilters.push({ itemId });
         if (institutionId) supersededFilters.push({ institutionId });

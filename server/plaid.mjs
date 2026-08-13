@@ -111,6 +111,14 @@ export function exchangePublicToken(publicToken) {
   return request("/item/public_token/exchange", { public_token: publicToken });
 }
 
+/**
+ * Fetch Item metadata (read-only). Used to learn which institution an existing
+ * connection belongs to when it was stored before institutionId was recorded.
+ */
+export function getItem(accessToken) {
+  return request("/item/get", { access_token: accessToken });
+}
+
 /** List the accounts reachable with this access token (read-only). */
 export function getAccounts(accessToken) {
   return request("/accounts/get", { access_token: accessToken });
