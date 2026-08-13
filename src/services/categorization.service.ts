@@ -59,10 +59,24 @@ namespace ReceiptRing.Services {
 
       category.keywords.forEach((keyword) => {
         const normalizedKeyword = this.ruleStorageService.normalizeLabel(keyword);
+        if (!normalizedKeyword) return;
         const keywordTokens = this.getTokens(normalizedKeyword);
 
-        if (normalizedKeyword && normalizedLabel.includes(normalizedKeyword)) {
-          score += keywordTokens.length > 1 ? 4.5 : 3;
+        // Multi-word keywords ("car wash", "first aid") are still matched as a
+        // phrase, but a single-word keyword must match a whole token. Plain
+        // substring matching scored "Steak" as Dining because it contains
+        // "tea", "Chair" as Personal via "hair", and "Notebook" as
+        // Entertainment via "book" -- each confidently enough that the user was
+        // never asked, so the wrong category went straight into the ring.
+        const isPhrase = keywordTokens.length > 1;
+        if (isPhrase && normalizedLabel.includes(normalizedKeyword)) {
+          score += 4.5;
+          matchedTerms.push(keyword);
+          return;
+        }
+
+        if (!isPhrase && tokens.includes(keywordTokens[0])) {
+          score += 3;
           matchedTerms.push(keyword);
           return;
         }

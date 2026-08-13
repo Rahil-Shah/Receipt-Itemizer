@@ -124,6 +124,7 @@ var ReceiptRing;
                 keywords: [
                     "fuel",
                     "gas",
+                    "gasoline",
                     "parking",
                     "uber",
                     "lyft",
@@ -330,9 +331,17 @@ var ReceiptRing;
                 let score = 0;
                 category.keywords.forEach((keyword) => {
                     const normalizedKeyword = this.ruleStorageService.normalizeLabel(keyword);
+                    if (!normalizedKeyword)
+                        return;
                     const keywordTokens = this.getTokens(normalizedKeyword);
-                    if (normalizedKeyword && normalizedLabel.includes(normalizedKeyword)) {
-                        score += keywordTokens.length > 1 ? 4.5 : 3;
+                    const isPhrase = keywordTokens.length > 1;
+                    if (isPhrase && normalizedLabel.includes(normalizedKeyword)) {
+                        score += 4.5;
+                        matchedTerms.push(keyword);
+                        return;
+                    }
+                    if (!isPhrase && tokens.includes(keywordTokens[0])) {
+                        score += 3;
                         matchedTerms.push(keyword);
                         return;
                     }
@@ -386,7 +395,7 @@ var ReceiptRing;
                 this.categorizationService = categorizationService;
                 this.idService = idService;
                 this.ignoredLabel = /^(total|subtotal|tax|cash|change|visa|mastercard|amex|debit|credit|balance|auth|approval|receipt)\b/i;
-                this.amountPattern = /(-?\$?\s*\d{1,4}(?:(?:,\d{3})+)?[,.]\d{2}|-?\$\s*\d{1,5})\s*$/;
+                this.amountPattern = /(?:^|\s)(-?\$?\s*\d+(?:,\d{3})*[,.]\d{2}|-?\$\s*\d+)\s*$/;
             }
             parse(text) {
                 return text
