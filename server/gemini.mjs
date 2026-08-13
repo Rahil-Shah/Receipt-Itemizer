@@ -18,6 +18,15 @@ const MODEL_RE = /^[A-Za-z0-9._-]+$/;
 // and caps length to bound abuse.
 const API_KEY_RE = /^[A-Za-z0-9_-]{20,200}$/;
 const DEFAULT_MODEL = "gemini-2.5-flash";
+// Formats Gemini accepts for inline image data. An open /^image\// test let
+// "image/" plus arbitrary trailing text through to Google verbatim.
+const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]);
+// Roughly 8 MB of base64, comfortably inside the route's 16 MB body cap. The
+// body limit alone let a caller park a 16 MB buffer per in-flight request.
+const MAX_IMAGE_BASE64_LENGTH = 8 * 1024 * 1024;
+// Without a deadline, a hung upstream connection pinned a socket and its
+// buffer indefinitely.
+const UPSTREAM_TIMEOUT_MS = 30_000;
 
 const PROMPT_TEXT = `You are an expert receipt parser.
 
@@ -41,6 +50,10 @@ Return JSON in exactly this format:
 
 Only include actual purchasable line items in the items array. Return only JSON.`;
 
+// Raised when a user has a stored key that can no longer be decrypted — most
+// likely because TOKEN_ENCRYPTION_KEY was rotated.
+class UndecryptableKeyError extends Error {}
+
 export function hasServerGeminiKey() {
   return Boolean(process.env.GEMINI_API_KEY);
 }
@@ -52,36 +65,49 @@ export function serverGeminiModel() {
 export function registerGemini(app, requireAuth, prisma) {
   // Resolve the key to call Gemini with: the user's own key when they've saved
   // one, otherwise the shared server key. Returns "" when neither exists.
-  async function resolveApiKey(userId) {
-    if (prisma && userId) {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { geminiKeyCiphertext: true, geminiKeyIv: true, geminiKeyAuthTag: true }
-      });
-      if (user?.geminiKeyCiphertext && user.geminiKeyIv && user.geminiKeyAuthTag) {
-        try {
-          return decryptSecret({
-            ciphertext: user.geminiKeyCiphertext,
-            iv: user.geminiKeyIv,
-            authTag: user.geminiKeyAuthTag
-          });
-        } catch (error) {
-          // Tampered/undecryptable (e.g. rotated encryption key): fall back to
-          // the shared key rather than failing the parse outright.
-          console.error("Failed to decrypt stored Gemini key:", error);
-        }
-      }
-    }
-    return process.env.GEMINI_API_KEY || "";
-  }
-
-  async function userHasKey(userId) {
-    if (!prisma || !userId) return false;
+  // Read a user's stored key. Returns the key, or null when they have none.
+  // Throws UndecryptableKeyError when a key is stored but cannot be read.
+  async function readUserKey(userId) {
+    if (!prisma || !userId) return null;
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { geminiKeyCiphertext: true }
+      select: { geminiKeyCiphertext: true, geminiKeyIv: true, geminiKeyAuthTag: true }
     });
-    return Boolean(user?.geminiKeyCiphertext);
+    if (!user?.geminiKeyCiphertext || !user.geminiKeyIv || !user.geminiKeyAuthTag) {
+      return null;
+    }
+    try {
+      return decryptSecret({
+        ciphertext: user.geminiKeyCiphertext,
+        iv: user.geminiKeyIv,
+        authTag: user.geminiKeyAuthTag
+      });
+    } catch (error) {
+      console.error("Failed to decrypt stored Gemini key:", error);
+      throw new UndecryptableKeyError();
+    }
+  }
+
+  // Resolve the key to call Gemini with: the user's own key when they've saved
+  // one, otherwise the shared server key. Returns "" when neither exists.
+  //
+  // An undecryptable personal key used to fall through to the shared key while
+  // the config endpoint kept reporting hasUserKey: true. After an encryption
+  // key rotation that quietly moved every user onto the operator's key and
+  // quota, with nothing but a log line to say so. Surface it instead.
+  async function resolveApiKey(userId) {
+    const userKey = await readUserKey(userId);
+    return userKey ?? process.env.GEMINI_API_KEY ?? "";
+  }
+
+  // Reports whether a usable personal key exists, so the UI cannot claim a key
+  // is in use when it can no longer be read.
+  async function userHasKey(userId) {
+    try {
+      return (await readUserKey(userId)) !== null;
+    } catch {
+      return false;
+    }
   }
 
   // Non-secret config for the browser: model, whether a shared server key
@@ -141,7 +167,17 @@ export function registerGemini(app, requireAuth, prisma) {
 
   // Proxy a single receipt image to Gemini using the resolved server-held key.
   app.post("/api/gemini/parse", requireAuth, async (req, res) => {
-    const apiKey = await resolveApiKey(req.userId);
+    let apiKey;
+    try {
+      apiKey = await resolveApiKey(req.userId);
+    } catch (error) {
+      if (error instanceof UndecryptableKeyError) {
+        return res.status(400).json({
+          error: "Your saved Gemini key can no longer be read. Please re-enter it in Settings."
+        });
+      }
+      throw error;
+    }
     if (!apiKey) {
       return res.status(503).json({ error: "No Gemini key is configured." });
     }
@@ -153,8 +189,11 @@ export function registerGemini(app, requireAuth, prisma) {
     if (!imageBase64 || !mimeType) {
       return res.status(400).json({ error: "imageBase64 and mimeType are required." });
     }
-    if (!/^image\//.test(mimeType)) {
-      return res.status(400).json({ error: "mimeType must be an image type." });
+    if (!ALLOWED_MIME_TYPES.has(mimeType)) {
+      return res.status(400).json({ error: "Unsupported image type." });
+    }
+    if (imageBase64.length > MAX_IMAGE_BASE64_LENGTH) {
+      return res.status(413).json({ error: "That image is too large. Try a smaller photo." });
     }
     if (!MODEL_RE.test(model)) {
       return res.status(400).json({ error: "Invalid model name." });
@@ -175,7 +214,8 @@ export function registerGemini(app, requireAuth, prisma) {
             }
           ],
           generationConfig: { responseMimeType: "application/json" }
-        })
+        }),
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)
       });
 
       const text = await upstream.text();
@@ -188,6 +228,9 @@ export function registerGemini(app, requireAuth, prisma) {
       res.type("application/json").send(text);
     } catch (error) {
       console.error("Gemini proxy failed:", error);
+      if (error?.name === "TimeoutError" || error?.name === "AbortError") {
+        return res.status(504).json({ error: "The receipt parser took too long. Try again." });
+      }
       res.status(502).json({ error: "Could not reach the receipt parser." });
     }
   });
