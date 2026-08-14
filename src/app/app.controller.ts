@@ -17,6 +17,10 @@ namespace ReceiptRing.App {
     private selectedMonth: string | null = null;
     private serverHasGeminiKey = false;
     private userHasGeminiKey = false;
+    // Downscaling the photo runs alongside the Gemini parse, so the pending
+    // promise is what's held here: a save that lands first waits for it instead
+    // of storing the receipt without its image.
+    private receiptImage: Promise<string | null> | null = null;
 
     constructor(
       private readonly elements: UI.DomRegistry,
@@ -26,6 +30,7 @@ namespace ReceiptRing.App {
       private readonly storageService: Services.StorageService,
       private readonly currencyFormatService: Services.CurrencyFormatService,
       private readonly imagePreviewService: Services.ImagePreviewService,
+      private readonly receiptImageService: Services.ReceiptImageService,
       private readonly geminiService: Services.GeminiService,
       private readonly categoryPromptView: UI.CategoryPromptView,
       private readonly splitWorkspaceView: UI.SplitWorkspaceView,
@@ -153,6 +158,7 @@ namespace ReceiptRing.App {
       this.receiptLines = [];
       this.assignments = [];
       this.lineModes.clear();
+      this.receiptImage = null;
       this.hideOcrStatus();
     }
 
@@ -178,9 +184,9 @@ namespace ReceiptRing.App {
       this.elements.receiptText.value = "";
       this.elements.storeNameInput.value = "";
       this.items = [];
-      this.receiptLines = [];
-      this.assignments = [];
-      this.lineModes.clear();
+      // Also drops the photo and its preview: clearing the receipt must not
+      // leave the previous image attached to whatever is entered next.
+      this.clearImage();
       this.setSaveStatus("");
       this.render();
     }
@@ -465,6 +471,9 @@ namespace ReceiptRing.App {
     private processReceiptImage(file: File): void {
       this.imagePreviewService.show(file, this.elements.receiptPreview, this.elements.receiptPreviewWrap);
       this.setOcrStatus(`Loaded ${file.name || "receipt image"}`, 0.02);
+      // Start shrinking the photo now so it is ready by the time the parse
+      // finishes and the receipt can be saved with it.
+      this.receiptImage = this.receiptImageService.toStorableDataUrl(file);
       void this.extractAndItemizeReceipt(file);
     }
 
@@ -588,6 +597,13 @@ namespace ReceiptRing.App {
         return;
       }
 
+      this.elements.saveReceiptButton.setAttribute("disabled", "true");
+      this.setSaveStatus("Saving...");
+
+      // Wait for the downscale started when the photo was picked; a failed one
+      // resolves to null and the receipt is saved without an image.
+      const imageDataUrl = this.receiptImage ? await this.receiptImage : null;
+
       const subtotal = this.getSubtotal();
       const tax = this.getTaxAmount();
       const payload: Services.SaveReceiptPayload = {
@@ -608,14 +624,13 @@ namespace ReceiptRing.App {
           personClientId: assignment.personId,
           mode: assignment.mode,
           value: assignment.value
-        }))
+        })),
+        imageDataUrl
       };
 
-      this.elements.saveReceiptButton.setAttribute("disabled", "true");
-      this.setSaveStatus("Saving...");
       try {
         await this.receiptApiService.save(payload);
-        this.setSaveStatus("Saved to history.");
+        this.setSaveStatus(imageDataUrl ? "Saved to history with the receipt photo." : "Saved to history.");
       } catch (error) {
         const message = error instanceof Error ? error.message : "Could not save receipt.";
         this.setSaveStatus(message, true);
