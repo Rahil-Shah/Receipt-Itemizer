@@ -230,7 +230,7 @@ namespace ReceiptRing.App {
     }
 
     private async extractAndItemizeReceipt(file: File): Promise<void> {
-      const model = localStorage.getItem("gemini_model") || "gemini-3.5-flash";
+      const model = localStorage.getItem("gemini_model") || "gemini-3.7-flash";
 
       // Parsing always runs through the server proxy, which uses the user's own
       // saved key or the shared server key. Only block when neither exists.
@@ -316,13 +316,13 @@ namespace ReceiptRing.App {
         localStorage.setItem("gemini_model", config.model);
       }
 
-      this.elements.geminiModel.value = localStorage.getItem("gemini_model") || "gemini-3.5-flash";
+      this.elements.geminiModel.value = localStorage.getItem("gemini_model") || "gemini-3.7-flash";
     }
 
     private openSettings(): void {
       // The key is write-only from the browser's side: never prefill the field.
       this.elements.geminiApiKey.value = "";
-      this.elements.geminiModel.value = localStorage.getItem("gemini_model") || "gemini-3.5-flash";
+      this.elements.geminiModel.value = localStorage.getItem("gemini_model") || "gemini-3.7-flash";
       this.renderGeminiKeyStatus();
       this.elements.settingsModal.classList.remove("hidden");
     }
