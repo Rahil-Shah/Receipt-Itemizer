@@ -85,6 +85,9 @@ app.use(cookieParser());
 // gates the big parser, so only a logged-in user can make the server hold
 // 16mb of request body.
 app.use("/api/gemini/parse", requireAuth, express.json({ limit: "16mb" }));
+// Saving a receipt can carry its photo (downscaled base64, see MAX_IMAGE_CHARS),
+// so this route needs more headroom than the rest of the API too.
+app.use("/api/receipts", requireAuth, express.json({ limit: "12mb" }));
 app.use(express.json({ limit: "2mb" }));
 
 // Routes last, so every request reaching one has been limited and parsed.
@@ -110,6 +113,9 @@ function serializeReceipt(receipt) {
     tax: toNumber(receipt.tax),
     total: toNumber(receipt.total),
     createdAt: receipt.createdAt,
+    // The photo itself is fetched separately (GET /api/receipts/:id/image) so
+    // the history list stays small; this only says whether there is one.
+    hasImage: Boolean(receipt.imageMimeType),
     people: receipt.people.map((person) => ({ id: person.accountPersonId, name: person.accountPerson.name })),
     lines: receipt.lines.map((line) => ({
       label: line.label,
@@ -133,6 +139,11 @@ const receiptInclude = {
   }
 };
 
+// Never load the base64 photo alongside a receipt: it is orders of magnitude
+// larger than everything else on the row, and no caller of these endpoints
+// needs it (the dedicated image route selects it on its own).
+const omitImageData = { imageData: true };
+
 // Upper bounds so a single request can't spawn an unbounded number of rows.
 const MAX_LINES = 500;
 const MAX_PEOPLE = 100;
@@ -142,6 +153,22 @@ const MAX_TEXT_LENGTH = 200;
 const MAX_AMOUNT = 1e8;
 // Must match Domain.AssignmentMode in src/domain/models.ts.
 const ASSIGNMENT_MODES = new Set(["equal", "percentage", "amount"]);
+// Receipt photos are stored as base64. The browser downscales before sending
+// (see ReceiptImageService), so anything beyond ~8mb of base64 (~6mb of image)
+// is well past a legible receipt photo and gets rejected rather than stored.
+const MAX_IMAGE_CHARS = 8 * 1024 * 1024;
+const IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const IMAGE_DATA_URL_RE = /^data:([a-z]+\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/;
+
+// Splits a data: URL into the pieces the columns hold, or returns null when it
+// isn't an image data URL this server is willing to store.
+function parseImageDataUrl(value) {
+  const match = IMAGE_DATA_URL_RE.exec(value);
+  if (!match) return null;
+  const [, mimeType, data] = match;
+  if (!IMAGE_MIME_TYPES.has(mimeType) || data.length === 0) return null;
+  return { mimeType, data };
+}
 
 // Thrown from inside the save transaction to roll it back and answer 400.
 class BadRequestError extends Error {}
@@ -193,6 +220,14 @@ function validateReceiptPayload(body) {
   for (const person of body.people ?? []) {
     if (!person || typeof person !== "object") return "Each person must be an object.";
   }
+  if (body.imageDataUrl !== null && body.imageDataUrl !== undefined) {
+    if (typeof body.imageDataUrl !== "string" || !parseImageDataUrl(body.imageDataUrl)) {
+      return "imageDataUrl must be a base64 JPEG, PNG, or WebP data URL.";
+    }
+    if (body.imageDataUrl.length > MAX_IMAGE_CHARS) {
+      return "The receipt image is too large.";
+    }
+  }
   const seenPairs = new Set();
   for (const assignment of body.assignments ?? []) {
     if (!assignment || typeof assignment !== "object") return "Each assignment must be an object.";
@@ -225,6 +260,8 @@ app.post("/api/receipts", requireAuth, async (req, res) => {
     return res.status(413).json({ error: "Receipt is too large." });
   }
 
+  const image = body.imageDataUrl ? parseImageDataUrl(body.imageDataUrl) : null;
+
   try {
     const result = await prisma.$transaction(async (tx) => {
       const receipt = await tx.receipt.create({
@@ -234,7 +271,9 @@ app.post("/api/receipts", requireAuth, async (req, res) => {
           category: body.category ?? "Other",
           subtotal: body.subtotal ?? null,
           tax: body.tax ?? null,
-          total: body.total ?? null
+          total: body.total ?? null,
+          imageData: image?.data ?? null,
+          imageMimeType: image?.mimeType ?? null
         }
       });
 
@@ -295,7 +334,11 @@ app.post("/api/receipts", requireAuth, async (req, res) => {
         await tx.lineAssignment.createMany({ data: assignmentData });
       }
 
-      return tx.receipt.findUnique({ where: { id: receipt.id }, include: receiptInclude });
+      return tx.receipt.findUnique({
+        where: { id: receipt.id },
+        omit: omitImageData,
+        include: receiptInclude
+      });
     });
 
     res.status(201).json(serializeReceipt(result));
@@ -305,6 +348,29 @@ app.post("/api/receipts", requireAuth, async (req, res) => {
     }
     console.error("Failed to save receipt:", error);
     res.status(500).json({ error: "Failed to save receipt." });
+  }
+});
+
+// The saved receipt photo, decoded back to binary. Scoped to the caller, and
+// deliberately not served from a static directory: the image can show a card's
+// last four, a loyalty number, or a home address, so it stays behind the
+// session cookie and out of shared caches.
+app.get("/api/receipts/:id/image", requireAuth, async (req, res) => {
+  try {
+    const receipt = await prisma.receipt.findFirst({
+      where: { id: req.params.id, userId: req.userId },
+      select: { imageData: true, imageMimeType: true }
+    });
+    if (!receipt?.imageData || !receipt.imageMimeType) {
+      return res.status(404).json({ error: "No image for this receipt." });
+    }
+    res.setHeader("Content-Type", receipt.imageMimeType);
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.setHeader("Content-Disposition", "inline");
+    res.send(Buffer.from(receipt.imageData, "base64"));
+  } catch (error) {
+    console.error("Failed to load receipt image:", error);
+    res.status(500).json({ error: "Failed to load receipt image." });
   }
 });
 
@@ -330,6 +396,7 @@ app.get("/api/receipts", requireAuth, async (req, res) => {
     const receipts = await prisma.receipt.findMany({
       where: { userId: req.userId },
       orderBy: { createdAt: "desc" },
+      omit: omitImageData,
       include: receiptInclude
     });
     res.json(receipts.map(serializeReceipt));
