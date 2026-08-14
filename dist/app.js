@@ -620,6 +620,55 @@ var ReceiptRing;
 (function (ReceiptRing) {
     var Services;
     (function (Services) {
+        const MAX_DIMENSION = 1600;
+        const JPEG_QUALITY = 0.82;
+        class ReceiptImageService {
+            async toStorableDataUrl(file) {
+                try {
+                    const source = await this.decode(file);
+                    const scale = Math.min(1, MAX_DIMENSION / Math.max(source.width, source.height));
+                    const canvas = document.createElement("canvas");
+                    canvas.width = Math.max(1, Math.round(source.width * scale));
+                    canvas.height = Math.max(1, Math.round(source.height * scale));
+                    const context = canvas.getContext("2d");
+                    if (!context)
+                        return null;
+                    context.drawImage(source, 0, 0, canvas.width, canvas.height);
+                    if ("close" in source) {
+                        source.close();
+                    }
+                    return canvas.toDataURL("image/jpeg", JPEG_QUALITY);
+                }
+                catch (error) {
+                    console.error("Could not prepare the receipt image for saving:", error);
+                    return null;
+                }
+            }
+            async decode(file) {
+                if (typeof createImageBitmap === "function") {
+                    return createImageBitmap(file, { imageOrientation: "from-image" });
+                }
+                const url = URL.createObjectURL(file);
+                try {
+                    return await new Promise((resolve, reject) => {
+                        const image = new Image();
+                        image.onload = () => resolve(image);
+                        image.onerror = () => reject(new Error("Could not decode the image."));
+                        image.src = url;
+                    });
+                }
+                finally {
+                    URL.revokeObjectURL(url);
+                }
+            }
+        }
+        Services.ReceiptImageService = ReceiptImageService;
+    })(Services = ReceiptRing.Services || (ReceiptRing.Services = {}));
+})(ReceiptRing || (ReceiptRing = {}));
+var ReceiptRing;
+(function (ReceiptRing) {
+    var Services;
+    (function (Services) {
         class GeminiService {
             async loadConfig() {
                 try {
@@ -714,6 +763,9 @@ var ReceiptRing;
     var Services;
     (function (Services) {
         class ReceiptApiService {
+            imageUrl(receiptId) {
+                return `/api/receipts/${encodeURIComponent(receiptId)}/image`;
+            }
             async save(payload) {
                 const response = await fetch("/api/receipts", {
                     method: "POST",
@@ -1346,8 +1398,9 @@ var ReceiptRing;
             amount: "Split by custom amount"
         };
         class SplitWorkspaceView {
-            constructor(currencyFormatService) {
+            constructor(currencyFormatService, receiptApiService) {
                 this.currencyFormatService = currencyFormatService;
+                this.receiptApiService = receiptApiService;
                 this.panelListeners = null;
             }
             renderLines(container, lines, assignments, people, lineModes, handlers) {
@@ -1537,6 +1590,20 @@ var ReceiptRing;
                     card.append(summary);
                     const body = document.createElement("div");
                     body.className = "history-body";
+                    if (receipt.hasImage) {
+                        const figure = document.createElement("a");
+                        figure.className = "history-image";
+                        figure.href = this.receiptApiService.imageUrl(receipt.id);
+                        figure.target = "_blank";
+                        figure.rel = "noopener";
+                        figure.title = "Open the full-size receipt photo";
+                        const photo = document.createElement("img");
+                        photo.src = figure.href;
+                        photo.loading = "lazy";
+                        photo.alt = `Photo of the receipt from ${receipt.storeName || "an unknown store"}`;
+                        figure.append(photo);
+                        body.append(figure);
+                    }
                     if (receipt.lines.length > 0) {
                         const linesWrap = document.createElement("div");
                         linesWrap.className = "history-lines";
@@ -1726,7 +1793,7 @@ var ReceiptRing;
     var App;
     (function (App) {
         class AppController {
-            constructor(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView, peopleApiService) {
+            constructor(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, receiptImageService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView, peopleApiService) {
                 this.elements = elements;
                 this.parserService = parserService;
                 this.categorizationService = categorizationService;
@@ -1734,6 +1801,7 @@ var ReceiptRing;
                 this.storageService = storageService;
                 this.currencyFormatService = currencyFormatService;
                 this.imagePreviewService = imagePreviewService;
+                this.receiptImageService = receiptImageService;
                 this.geminiService = geminiService;
                 this.categoryPromptView = categoryPromptView;
                 this.splitWorkspaceView = splitWorkspaceView;
@@ -1759,6 +1827,7 @@ var ReceiptRing;
                 this.selectedMonth = null;
                 this.serverHasGeminiKey = false;
                 this.userHasGeminiKey = false;
+                this.receiptImage = null;
                 this.items = this.storageService.load();
             }
             start() {
@@ -1857,6 +1926,7 @@ var ReceiptRing;
                 this.receiptLines = [];
                 this.assignments = [];
                 this.lineModes.clear();
+                this.receiptImage = null;
                 this.hideOcrStatus();
             }
             setItemsFromParse(items) {
@@ -1879,9 +1949,7 @@ var ReceiptRing;
                 this.elements.receiptText.value = "";
                 this.elements.storeNameInput.value = "";
                 this.items = [];
-                this.receiptLines = [];
-                this.assignments = [];
-                this.lineModes.clear();
+                this.clearImage();
                 this.setSaveStatus("");
                 this.render();
             }
@@ -2119,6 +2187,7 @@ var ReceiptRing;
             processReceiptImage(file) {
                 this.imagePreviewService.show(file, this.elements.receiptPreview, this.elements.receiptPreviewWrap);
                 this.setOcrStatus(`Loaded ${file.name || "receipt image"}`, 0.02);
+                this.receiptImage = this.receiptImageService.toStorableDataUrl(file);
                 void this.extractAndItemizeReceipt(file);
             }
             async loadPeople() {
@@ -2223,6 +2292,9 @@ var ReceiptRing;
                     this.setSaveStatus("Add receipt lines before saving.", true);
                     return;
                 }
+                this.elements.saveReceiptButton.setAttribute("disabled", "true");
+                this.setSaveStatus("Saving...");
+                const imageDataUrl = this.receiptImage ? await this.receiptImage : null;
                 const subtotal = this.getSubtotal();
                 const tax = this.getTaxAmount();
                 const payload = {
@@ -2243,13 +2315,12 @@ var ReceiptRing;
                         personClientId: assignment.personId,
                         mode: assignment.mode,
                         value: assignment.value
-                    }))
+                    })),
+                    imageDataUrl
                 };
-                this.elements.saveReceiptButton.setAttribute("disabled", "true");
-                this.setSaveStatus("Saving...");
                 try {
                     await this.receiptApiService.save(payload);
-                    this.setSaveStatus("Saved to history.");
+                    this.setSaveStatus(imageDataUrl ? "Saved to history with the receipt photo." : "Saved to history.");
                 }
                 catch (error) {
                     const message = error instanceof Error ? error.message : "Could not save receipt.";
@@ -2602,6 +2673,7 @@ var ReceiptRing;
     const storageService = new ReceiptRing.Services.StorageService("receipt-ring-items");
     const splitCalculatorService = new ReceiptRing.Services.SplitCalculatorService();
     const imagePreviewService = new ReceiptRing.Services.ImagePreviewService();
+    const receiptImageService = new ReceiptRing.Services.ReceiptImageService();
     const geminiService = new ReceiptRing.Services.GeminiService();
     const receiptApiService = new ReceiptRing.Services.ReceiptApiService();
     const authApiService = new ReceiptRing.Services.AuthApiService();
@@ -2610,11 +2682,11 @@ var ReceiptRing;
     const spendingAggregatorService = new ReceiptRing.Services.SpendingAggregatorService(categories);
     const elements = new ReceiptRing.UI.DomRegistryFactory().create();
     const categoryPromptView = new ReceiptRing.UI.CategoryPromptView(categories, elements);
-    const splitWorkspaceView = new ReceiptRing.UI.SplitWorkspaceView(currencyFormatService);
+    const splitWorkspaceView = new ReceiptRing.UI.SplitWorkspaceView(currencyFormatService, receiptApiService);
     const budgetRingView = new ReceiptRing.UI.BudgetRingView(currencyFormatService);
     const monthlyTrendView = new ReceiptRing.UI.MonthlyTrendView(currencyFormatService);
     const authView = new ReceiptRing.UI.AuthView(elements, authApiService);
-    const controller = new ReceiptRing.App.AppController(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView, peopleApiService);
+    const controller = new ReceiptRing.App.AppController(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, receiptImageService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView, peopleApiService);
     let started = false;
     const startApp = () => {
         if (started)
