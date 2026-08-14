@@ -23,6 +23,7 @@
     "src/services/split-calculator.service.ts",
     "src/services/storage.service.ts",
     "src/services/image-preview.service.ts",
+    "src/services/receipt-image.service.ts",
     "src/services/gemini.service.ts",
     "src/services/receipt-api.service.ts",
     "src/services/auth-api.service.ts",
