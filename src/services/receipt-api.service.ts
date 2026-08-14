@@ -26,6 +26,9 @@ namespace ReceiptRing.Services {
     people: SaveReceiptPerson[];
     lines: SaveReceiptLine[];
     assignments: SaveReceiptAssignment[];
+    // The receipt photo as a base64 data URL, kept with the saved receipt.
+    // Null when the receipt was typed or pasted rather than photographed.
+    imageDataUrl: string | null;
   }
 
   export interface SavedReceiptLineAssignment {
@@ -48,11 +51,20 @@ namespace ReceiptRing.Services {
     tax: number | null;
     total: number | null;
     createdAt: string;
+    // Whether a photo was stored with this receipt. The image itself is loaded
+    // on demand from imageUrl(), never inlined in the history payload.
+    hasImage: boolean;
     people: { id: string; name: string }[];
     lines: SavedReceiptLineSummary[];
   }
 
   export class ReceiptApiService {
+    // The photo lives behind the session cookie, so it is fetched from the API
+    // like any other request rather than linked from a public path.
+    imageUrl(receiptId: string): string {
+      return `/api/receipts/${encodeURIComponent(receiptId)}/image`;
+    }
+
     async save(payload: SaveReceiptPayload): Promise<SavedReceiptSummary> {
       const response = await fetch("/api/receipts", {
         method: "POST",
