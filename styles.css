@@ -1104,6 +1104,27 @@ input[type="number"] {
   text-align: right;
 }
 
+.history-image {
+  display: block;
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--well);
+  line-height: 0;
+}
+
+.history-image img {
+  display: block;
+  width: 100%;
+  max-height: 340px;
+  object-fit: contain;
+}
+
+.history-image:hover {
+  border-color: var(--accent);
+}
+
 .history-people {
   padding: 8px 11px;
   border-radius: var(--radius-sm);

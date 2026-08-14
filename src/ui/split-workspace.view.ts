@@ -20,7 +20,10 @@ namespace ReceiptRing.UI {
     // deterministically instead of waiting for the next scroll to notice.
     private panelListeners: AbortController | null = null;
 
-    constructor(private readonly currencyFormatService: Services.CurrencyFormatService) {}
+    constructor(
+      private readonly currencyFormatService: Services.CurrencyFormatService,
+      private readonly receiptApiService: Services.ReceiptApiService
+    ) {}
 
     renderLines(
       container: HTMLElement,
@@ -285,6 +288,24 @@ namespace ReceiptRing.UI {
 
         const body = document.createElement("div");
         body.className = "history-body";
+
+        if (receipt.hasImage) {
+          // Inside the collapsed card, so the photos only load for receipts the
+          // user actually opens.
+          const figure = document.createElement("a");
+          figure.className = "history-image";
+          figure.href = this.receiptApiService.imageUrl(receipt.id);
+          figure.target = "_blank";
+          figure.rel = "noopener";
+          figure.title = "Open the full-size receipt photo";
+
+          const photo = document.createElement("img");
+          photo.src = figure.href;
+          photo.loading = "lazy";
+          photo.alt = `Photo of the receipt from ${receipt.storeName || "an unknown store"}`;
+          figure.append(photo);
+          body.append(figure);
+        }
 
         if (receipt.lines.length > 0) {
           const linesWrap = document.createElement("div");

@@ -17,7 +17,7 @@ namespace ReceiptRing {
   const spendingAggregatorService = new Services.SpendingAggregatorService(categories);
   const elements = new UI.DomRegistryFactory().create();
   const categoryPromptView = new UI.CategoryPromptView(categories, elements);
-  const splitWorkspaceView = new UI.SplitWorkspaceView(currencyFormatService);
+  const splitWorkspaceView = new UI.SplitWorkspaceView(currencyFormatService, receiptApiService);
   const budgetRingView = new UI.BudgetRingView(currencyFormatService);
   const monthlyTrendView = new UI.MonthlyTrendView(currencyFormatService);
   const authView = new UI.AuthView(elements, authApiService);
