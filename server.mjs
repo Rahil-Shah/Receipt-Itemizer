@@ -192,7 +192,6 @@ function validateReceiptPayload(body) {
   }
   for (const person of body.people ?? []) {
     if (!person || typeof person !== "object") return "Each person must be an object.";
-    if (!isShortString(person.name)) return "Each person needs a name of 1-200 characters.";
   }
   const seenPairs = new Set();
   for (const assignment of body.assignments ?? []) {
