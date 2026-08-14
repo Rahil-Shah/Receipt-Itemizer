@@ -28,29 +28,29 @@ const MAX_IMAGE_BASE64_LENGTH = 8 * 1024 * 1024;
 // buffer indefinitely.
 const UPSTREAM_TIMEOUT_MS = 90_000;
 
-const PROMPT_TEXT = `You are an expert receipt parser. Extract only what is directly shown on the receipt.
+const PROMPT_TEXT = `You are an expert receipt parser. Transcribe exactly what is printed on the receipt. Do NOT do any arithmetic - a separate program validates and reconciles the numbers.
 
-CRITICAL RULE: The price field is ALWAYS the single price shown next to each item on the receipt.
+For each purchasable item:
+- "price": the amount printed in the price column next to that item, exactly as shown. Never adjust it, never subtract anything from it.
+- "discount": any discount, coupon, or savings amount printed on the receipt FOR that item, as a positive number. 0 if none is printed.
 
-Discount field rules:
-- Set discount to 0 UNLESS the receipt explicitly shows BOTH an original/regular price AND a final/reduced price for the same item
-- Example: "Item $20 (reg $25)" → price: 20, discount: 5
-- Example: "Item $20" with "Discount -$5" nearby → price: 20, discount: 0 (don't guess original price)
-- NEVER calculate or infer discount amounts - only extract if both prices are shown
+How discounts appear on receipts:
+- A separate discount line near an item, with a negative amount or trailing minus. Examples: "TPD/1234567 3.00-", "/331066 2.00-", "MEMBER SAVINGS -2.50", "COUPON -1.00". Attach that amount to the item it belongs to (the line directly above it, or the item whose number it references). Do NOT include the discount line as its own item in the items array.
+- Both a regular and a reduced price printed for one item, e.g. "Item $20 (reg $25)": price: 20, discount: 5.
+- If no discount is printed anywhere for an item, discount is 0. Never invent or estimate a discount.
+
+Do not decide whether a discount is already included in the item's price - just report the printed price and the printed discount separately. The validation program figures out the rest.
 
 Rules:
 
-1. For each item, extract the ONE price shown next to it on the receipt - this is the amount the customer paid.
-2. Extract discount ONLY if the receipt shows an original price and a final price for that item. Then discount = original - final.
-3. Never invent or infer a discount amount - if only one price is shown, discount is always 0.
-4. Preserve item order exactly as it appears on the receipt.
-5. Ignore store addresses, phone numbers, loyalty info, payment methods, card numbers, barcodes, receipt IDs.
-6. Do not invent items.
-7. If text is unclear, make the best reasonable interpretation.
-8. Return valid JSON only - no markdown, no explanations, just JSON.
-9. All prices must be numeric values (positive).
-10. Extract subtotal, tax, and total from the receipt.
-11. If confidence is low for an item name, still include the item but add a lowConfidence flag.
+1. Preserve item order exactly as it appears on the receipt.
+2. Every discount line must be attached to an item's "discount" field, never listed as an item.
+3. Ignore store addresses, phone numbers, loyalty info, payment methods, card numbers, barcodes, receipt IDs.
+4. Do not invent items.
+5. If text is unclear, make the best reasonable interpretation.
+6. All prices and discounts must be positive numeric values.
+7. Extract subtotal, tax, and total exactly as printed on the receipt. Use 0 if not printed.
+8. If confidence is low for an item name, still include the item but set the lowConfidence flag.
 
 Return JSON in exactly this format, with no backticks or markdown:
 {
@@ -70,54 +70,67 @@ Return JSON in exactly this format, with no backticks or markdown:
 
 Return ONLY valid JSON. No other text.`;
 
-// Validate receipt data and reconcile discount handling.
-// Prices shown on receipt are what customer actually paid.
-// Discounts shown are only applied if the math requires it.
+// Decide deterministically whether the extracted discounts are already baked
+// into the printed item prices (many grocery receipts) or must be subtracted
+// from them (Costco-style separate discount lines). The model is told to
+// transcribe both numbers without doing arithmetic; here we compare each
+// interpretation against the amount actually charged and keep the one that
+// adds up.
 function validateAndReconcileReceipt(data) {
-  if (!data.items || !Array.isArray(data.items)) {
+  if (!Array.isArray(data?.items) || data.items.length === 0) {
     return data;
   }
 
+  const round2 = (n) => Math.round(n * 100) / 100;
   const tax = Number(data.tax) || 0;
   const total = Number(data.total) || 0;
-  const expectedSubtotal = total - tax;
+  const statedSubtotal = Number(data.subtotal) || 0;
 
-  // First, try prices as-is (without applying discounts)
-  // This assumes prices shown are what customer paid
-  let sumWithoutDiscounts = 0;
-  data.items.forEach((item) => {
-    const price = Number(item.price) || 0;
-    sumWithoutDiscounts += price;
-  });
+  // Normalize discounts to positive numbers regardless of how the model
+  // reported them.
+  data.items = data.items.map((item) => ({
+    ...item,
+    price: Number(item.price) || 0,
+    discount: Math.abs(Number(item.discount) || 0)
+  }));
 
-  const withoutDiscountMatch = Math.abs(sumWithoutDiscounts - expectedSubtotal) < 0.01;
+  let priceSum = 0;
+  let discountSum = 0;
+  for (const item of data.items) {
+    priceSum += item.price;
+    discountSum += item.discount;
+  }
+  priceSum = round2(priceSum);
+  discountSum = round2(discountSum);
 
-  if (withoutDiscountMatch) {
-    // Prices as shown match the total - discounts are informational only
-    // Remove all discount metadata
-    data.items = data.items.map((item) => ({
-      ...item,
-      discount: 0
-    }));
+  if (discountSum === 0) {
     return data;
   }
 
-  // If prices alone don't match, check if we need to apply the discounts
-  let sumWithDiscounts = 0;
-  data.items.forEach((item) => {
-    const price = Number(item.price) || 0;
-    const discount = Number(item.discount) || 0;
-    sumWithDiscounts += price - discount;
-  });
-
-  const withDiscountMatch = Math.abs(sumWithDiscounts - expectedSubtotal) < 0.01;
-
-  if (withDiscountMatch) {
-    // Discounts need to be applied - keep them
+  // Reference the item lines must add up to. Prefer total - tax (the total is
+  // the amount actually charged); fall back to the printed subtotal.
+  const target = total > 0 ? round2(total - tax) : statedSubtotal;
+  if (target <= 0) {
+    // No usable reference amount - keep the printed discounts as-is.
     return data;
   }
 
-  // If neither works, return as-is (let client handle)
+  const diffAsPrinted = Math.abs(priceSum - target);
+  const diffDiscounted = Math.abs(round2(priceSum - discountSum) - target);
+
+  // Prices as printed already explain the charged amount at least as well as
+  // subtracting the discounts would: the discounts are informational (already
+  // baked into the prices), so drop them to avoid double-discounting.
+  if (diffAsPrinted <= diffDiscounted) {
+    data.items = data.items.map((item) => ({ ...item, discount: 0 }));
+    console.log(
+      `Discount reconciliation: baked-in (items=${priceSum}, target=${target}, discounts dropped=${discountSum})`
+    );
+  } else {
+    console.log(
+      `Discount reconciliation: separate (items=${priceSum} - discounts=${discountSum} vs target=${target})`
+    );
+  }
   return data;
 }
 
@@ -311,8 +324,23 @@ export function registerGemini(app, requireAuth, prisma) {
       }
 
       console.log("Parsing and validating receipt data...");
-      const cleanedText = text.trim().replace(/^```json\n?/, "").replace(/\n?```$/, "").trim();
-      const parsed = JSON.parse(cleanedText);
+      // The upstream body is the Gemini API envelope; the receipt JSON is the
+      // model's text inside it. Unwrap first — validating the envelope itself
+      // silently skips reconciliation (no .items on it).
+      const envelope = JSON.parse(text);
+      const modelText = envelope?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!modelText) {
+        console.error("Gemini returned no text. Envelope:", text.slice(0, 500));
+        return res.status(502).json({ error: "The receipt parser returned no readable result. Try again." });
+      }
+      let parsed;
+      try {
+        const cleanedText = modelText.trim().replace(/^```json\n?/, "").replace(/\n?```$/, "").trim();
+        parsed = JSON.parse(cleanedText);
+      } catch (parseError) {
+        console.error("Failed to parse receipt JSON from Gemini:", parseError, "Text:", modelText.slice(0, 500));
+        return res.status(502).json({ error: "The receipt parser returned malformed data. Try again." });
+      }
       const validated = validateAndReconcileReceipt(parsed);
       console.log("Receipt validation complete");
       res.type("application/json").json(validated);
