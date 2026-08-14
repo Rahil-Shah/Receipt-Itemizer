@@ -422,7 +422,7 @@ var ReceiptRing;
                     .replace(/[*#@]/g, "")
                     .replace(/\b\d{4,}\b/g, "")
                     .trim();
-                if (!label || this.ignoredLabel.test(label) || !Number.isFinite(amount) || amount <= 0) {
+                if (!label || this.ignoredLabel.test(label) || !Number.isFinite(amount) || amount === 0) {
                     return null;
                 }
                 const categorization = this.categorizationService.categorize(label);
@@ -688,15 +688,21 @@ var ReceiptRing;
             extractParsedJson(json) {
                 const textResult = json?.candidates?.[0]?.content?.parts?.[0]?.text;
                 if (!textResult) {
+                    console.error("Gemini response structure:", JSON.stringify(json, null, 2));
                     throw new Error("No response text returned from Gemini.");
                 }
+                let cleanedText = "";
                 try {
-                    const cleanedText = textResult.trim().replace(/^```json/, "").replace(/```$/, "").trim();
+                    cleanedText = textResult.trim().replace(/^```json\n?/, "").replace(/\n?```$/, "").trim();
                     return JSON.parse(cleanedText);
                 }
                 catch (e) {
-                    console.error("Failed to parse Gemini JSON output. Raw text:", textResult);
-                    throw new Error("Failed to parse the structured receipt JSON from Gemini response.");
+                    console.error("Failed to parse Gemini JSON output.");
+                    console.error("Raw text:", textResult);
+                    console.error("Cleaned text:", cleanedText);
+                    console.error("Parse error:", e instanceof Error ? e.message : String(e));
+                    const errorMsg = e instanceof Error ? e.message : "Unknown error";
+                    throw new Error(`Failed to parse receipt JSON from Gemini: ${errorMsg}. Check browser console for details.`);
                 }
             }
         }
@@ -1902,7 +1908,8 @@ var ReceiptRing;
                 this.elements.unassignedCount.textContent = `${unassignedCount} unassigned`;
                 this.elements.unassignedCount.classList.toggle("is-warning", unassignedCount > 0);
                 this.splitWorkspaceView.renderTotals(this.elements.splitTotalsList, this.splitCalculatorService.calculate(this.people, this.receiptLines, this.assignments, this.getTaxAmount()));
-                const grandTotal = this.getSubtotal() + this.getTaxAmount();
+                const itemSum = this.getSubtotal();
+                const grandTotal = itemSum + this.getTaxAmount();
                 this.elements.receiptTotal.textContent = this.currencyFormatService.format(grandTotal);
             }
             async extractAndItemizeReceipt(file) {
@@ -1928,36 +1935,27 @@ var ReceiptRing;
                     if (Array.isArray(result.items)) {
                         result.items.forEach((item) => {
                             const label = this.toTitleCase(item.name || "Unknown Item");
-                            const amount = typeof item.price === "number" ? item.price : Number(item.price) || 0;
+                            const price = typeof item.price === "number" ? item.price : Number(item.price) || 0;
+                            const discount = typeof item.discount === "number" ? item.discount : Number(item.discount) || 0;
+                            const finalAmount = Math.max(0, price - discount);
                             const lowConfidence = !!item.lowConfidence;
-                            formattedText += `- ${label}: $${amount.toFixed(2)}${lowConfidence ? " (low confidence)" : ""}\n`;
+                            let itemLabel = label;
+                            if (discount > 0.01) {
+                                itemLabel += ` (was $${price.toFixed(2)}, ${discount > 0 ? "-" : ""}$${Math.abs(discount).toFixed(2)} discount)`;
+                                formattedText += `- ${itemLabel}: $${finalAmount.toFixed(2)}${lowConfidence ? " (low confidence)" : ""}\n`;
+                            }
+                            else {
+                                formattedText += `- ${label}: $${finalAmount.toFixed(2)}${lowConfidence ? " (low confidence)" : ""}\n`;
+                            }
                             const categorization = this.categorizationService.categorize(label);
                             purchaseItems.push({
                                 id: this.idService.create(),
-                                label,
-                                amount: Number(amount.toFixed(2)),
+                                label: itemLabel,
+                                amount: Number(finalAmount.toFixed(2)),
                                 category: categorization.category,
                                 categorizationConfidence: lowConfidence ? 0.3 : categorization.confidence,
                                 categorizationSource: categorization.source,
                                 needsCategoryReview: lowConfidence || categorization.shouldPrompt
-                            });
-                        });
-                    }
-                    if (Array.isArray(result.discounts) && result.discounts.length > 0) {
-                        formattedText += `\nDiscounts:\n`;
-                        result.discounts.forEach((discount) => {
-                            const label = this.toTitleCase(discount.name || "Discount") + " (Discount)";
-                            const amount = typeof discount.amount === "number" ? discount.amount : Number(discount.amount) || 0;
-                            const negativeAmount = -Math.abs(amount);
-                            formattedText += `- ${label}: -$${Math.abs(negativeAmount).toFixed(2)}\n`;
-                            purchaseItems.push({
-                                id: this.idService.create(),
-                                label,
-                                amount: Number(negativeAmount.toFixed(2)),
-                                category: "Other",
-                                categorizationConfidence: 1.0,
-                                categorizationSource: "saved-rule",
-                                needsCategoryReview: false
                             });
                         });
                     }

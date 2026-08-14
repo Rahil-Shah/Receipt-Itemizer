@@ -224,7 +224,8 @@ namespace ReceiptRing.App {
         this.splitCalculatorService.calculate(this.people, this.receiptLines, this.assignments, this.getTaxAmount())
       );
 
-      const grandTotal = this.getSubtotal() + this.getTaxAmount();
+      const itemSum = this.getSubtotal();
+      const grandTotal = itemSum + this.getTaxAmount();
       this.elements.receiptTotal.textContent = this.currencyFormatService.format(grandTotal);
     }
 
@@ -262,42 +263,29 @@ namespace ReceiptRing.App {
         if (Array.isArray(result.items)) {
           result.items.forEach((item: any) => {
             const label = this.toTitleCase(item.name || "Unknown Item");
-            const amount = typeof item.price === "number" ? item.price : Number(item.price) || 0;
+            const price = typeof item.price === "number" ? item.price : Number(item.price) || 0;
+            const discount = typeof item.discount === "number" ? item.discount : Number(item.discount) || 0;
+            const finalAmount = Math.max(0, price - discount);
             const lowConfidence = !!item.lowConfidence;
 
-            formattedText += `- ${label}: $${amount.toFixed(2)}${lowConfidence ? " (low confidence)" : ""}\n`;
+            let itemLabel = label;
+            if (discount > 0.01) {
+              itemLabel += ` (was $${price.toFixed(2)}, ${discount > 0 ? "-" : ""}$${Math.abs(discount).toFixed(2)} discount)`;
+              formattedText += `- ${itemLabel}: $${finalAmount.toFixed(2)}${lowConfidence ? " (low confidence)" : ""}\n`;
+            } else {
+              formattedText += `- ${label}: $${finalAmount.toFixed(2)}${lowConfidence ? " (low confidence)" : ""}\n`;
+            }
 
             const categorization = this.categorizationService.categorize(label);
 
             purchaseItems.push({
               id: this.idService.create(),
-              label,
-              amount: Number(amount.toFixed(2)),
+              label: itemLabel,
+              amount: Number(finalAmount.toFixed(2)),
               category: categorization.category,
               categorizationConfidence: lowConfidence ? 0.3 : categorization.confidence,
               categorizationSource: categorization.source,
               needsCategoryReview: lowConfidence || categorization.shouldPrompt
-            });
-          });
-        }
-
-        if (Array.isArray(result.discounts) && result.discounts.length > 0) {
-          formattedText += `\nDiscounts:\n`;
-          result.discounts.forEach((discount: any) => {
-            const label = this.toTitleCase(discount.name || "Discount") + " (Discount)";
-            const amount = typeof discount.amount === "number" ? discount.amount : Number(discount.amount) || 0;
-            const negativeAmount = -Math.abs(amount);
-
-            formattedText += `- ${label}: -$${Math.abs(negativeAmount).toFixed(2)}\n`;
-
-            purchaseItems.push({
-              id: this.idService.create(),
-              label,
-              amount: Number(negativeAmount.toFixed(2)),
-              category: "Other",
-              categorizationConfidence: 1.0,
-              categorizationSource: "saved-rule",
-              needsCategoryReview: false
             });
           });
         }
@@ -1032,5 +1020,6 @@ namespace ReceiptRing.App {
         candidate.id === id ? { ...candidate, needsCategoryReview: false } : candidate
       );
     }
+
   }
 }

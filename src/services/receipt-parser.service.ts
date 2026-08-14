@@ -33,7 +33,7 @@ namespace ReceiptRing.Services {
         .replace(/\b\d{4,}\b/g, "")
         .trim();
 
-      if (!label || this.ignoredLabel.test(label) || !Number.isFinite(amount) || amount <= 0) {
+      if (!label || this.ignoredLabel.test(label) || !Number.isFinite(amount) || amount === 0) {
         return null;
       }
 

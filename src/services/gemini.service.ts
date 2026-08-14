@@ -99,14 +99,20 @@ namespace ReceiptRing.Services {
     private extractParsedJson(json: any): any {
       const textResult = json?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!textResult) {
+        console.error("Gemini response structure:", JSON.stringify(json, null, 2));
         throw new Error("No response text returned from Gemini.");
       }
+      let cleanedText = "";
       try {
-        const cleanedText = textResult.trim().replace(/^```json/, "").replace(/```$/, "").trim();
+        cleanedText = textResult.trim().replace(/^```json\n?/, "").replace(/\n?```$/, "").trim();
         return JSON.parse(cleanedText);
       } catch (e) {
-        console.error("Failed to parse Gemini JSON output. Raw text:", textResult);
-        throw new Error("Failed to parse the structured receipt JSON from Gemini response.");
+        console.error("Failed to parse Gemini JSON output.");
+        console.error("Raw text:", textResult);
+        console.error("Cleaned text:", cleanedText);
+        console.error("Parse error:", e instanceof Error ? e.message : String(e));
+        const errorMsg = e instanceof Error ? e.message : "Unknown error";
+        throw new Error(`Failed to parse receipt JSON from Gemini: ${errorMsg}. Check browser console for details.`);
       }
     }
   }

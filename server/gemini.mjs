@@ -25,30 +25,94 @@ const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "im
 // body limit alone let a caller park a 16 MB buffer per in-flight request.
 const MAX_IMAGE_BASE64_LENGTH = 8 * 1024 * 1024;
 // Without a deadline, a hung upstream connection pinned a socket and its
-// buffer indefinitely.
-const UPSTREAM_TIMEOUT_MS = 30_000;
+// buffer indefinitely. Increased to 60s for slower Gemini responses.
+const UPSTREAM_TIMEOUT_MS = 60_000;
 
 const PROMPT_TEXT = `You are an expert receipt parser.
 
-Your job is to analyze a receipt image and extract ONLY the purchasable items, their prices, and receipt totals.
+Your job is to analyze a receipt image and extract purchasable items with their prices and discounts.
 
 Rules:
 
-1. Extract every purchased item and its corresponding price.
-2. Preserve item order exactly as it appears on the receipt.
-3. Ignore store addresses, phone numbers, loyalty info, cashier info, payment methods, approval codes, card numbers, barcode values, and receipt IDs unless needed for totals.
-4. Do not invent items.
-5. If text is unclear, make the best reasonable interpretation.
-6. Return valid JSON only.
-7. Prices must be numeric values.
-8. Extract subtotal, tax, and total whenever available.
-9. If an item appears to be a discount or coupon, include it in a separate discounts array.
+1. Extract every purchased item with its price as shown on the receipt.
+2. If an item has a discount applied to it (coupon, sale, loyalty discount), include the discount amount in the item's discount field.
+3. Preserve item order exactly as it appears on the receipt.
+4. Ignore store addresses, phone numbers, loyalty info, cashier info, payment methods, approval codes, card numbers, barcode values, and receipt IDs unless needed for totals.
+5. Do not invent items.
+6. If text is unclear, make the best reasonable interpretation.
+7. Return valid JSON only - no markdown, no explanations, just JSON.
+8. All prices must be numeric values (positive for prices, positive for discount amounts).
+9. Extract subtotal, tax, and total from the receipt.
 10. If confidence is low for an item name, still include the item but add a lowConfidence flag.
+11. Discount amounts are always positive numbers representing the reduction amount.
 
-Return JSON in exactly this format:
-{ "storeName": string | null, "subtotal": number | null, "tax": number | null, "total": number | null, "items": [ { "name": string, "price": number, "lowConfidence": boolean } ], "discounts": [ { "name": string, "amount": number } ] }
+Return JSON in exactly this format, with no backticks or markdown:
+{
+  "storeName": "Store Name or null",
+  "subtotal": 0.00,
+  "tax": 0.00,
+  "total": 0.00,
+  "items": [
+    {
+      "name": "Item Name",
+      "price": 0.00,
+      "discount": 0.00,
+      "lowConfidence": false
+    }
+  ]
+}
 
-Only include actual purchasable line items in the items array. Return only JSON.`;
+Return ONLY valid JSON. No other text.`;
+
+// Validate receipt data and reconcile discount handling.
+// If discounts are shown but the math doesn't add up, determine if they're
+// baked into the item price or if they're truly separate.
+function validateAndReconcileReceipt(data) {
+  if (!data.items || !Array.isArray(data.items)) {
+    return data;
+  }
+
+  const tax = Number(data.tax) || 0;
+  const total = Number(data.total) || 0;
+  const expectedSubtotal = total - tax;
+
+  // Calculate sum with discounts applied
+  let sumWithDiscounts = 0;
+  data.items.forEach((item) => {
+    const price = Number(item.price) || 0;
+    const discount = Number(item.discount) || 0;
+    sumWithDiscounts += price - discount;
+  });
+
+  // Allow 1 cent of rounding error
+  const withDiscountMatch = Math.abs(sumWithDiscounts - expectedSubtotal) < 0.01;
+
+  if (withDiscountMatch) {
+    // Discounts are truly separate - keep them as-is
+    return data;
+  }
+
+  // Check if discounts are already baked in (sum without discounts matches expected)
+  let sumWithoutDiscounts = 0;
+  data.items.forEach((item) => {
+    const price = Number(item.price) || 0;
+    sumWithoutDiscounts += price;
+  });
+
+  const withoutDiscountMatch = Math.abs(sumWithoutDiscounts - expectedSubtotal) < 0.01;
+
+  if (withoutDiscountMatch) {
+    // Discounts are baked into the item prices - remove them
+    data.items = data.items.map((item) => ({
+      ...item,
+      discount: 0
+    }));
+    return data;
+  }
+
+  // If neither matches, return as-is (let client handle)
+  return data;
+}
 
 // Raised when a user has a stored key that can no longer be decrypted — most
 // likely because TOKEN_ENCRYPTION_KEY was rotated.
@@ -212,8 +276,7 @@ export function registerGemini(app, requireAuth, prisma) {
                 { inlineData: { mimeType, data: imageBase64 } }
               ]
             }
-          ],
-          generationConfig: { responseMimeType: "application/json" }
+          ]
         }),
         signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)
       });
@@ -222,10 +285,28 @@ export function registerGemini(app, requireAuth, prisma) {
       if (!upstream.ok) {
         // Do not forward the upstream body verbatim; it can echo the request/key context.
         console.error("Gemini upstream error:", upstream.status, text.slice(0, 300));
-        return res.status(502).json({ error: "Receipt parsing failed upstream." });
+        try {
+          const errorBody = JSON.parse(text);
+          const errorMessage = errorBody?.error?.message || errorBody?.message || "Unknown error";
+          return res.status(502).json({
+            error: `Receipt parsing failed: ${upstream.status} - ${errorMessage.slice(0, 100)}`
+          });
+        } catch {
+          return res.status(502).json({
+            error: `Receipt parsing failed with status ${upstream.status}`
+          });
+        }
       }
-      // Pass through the (non-secret) model output as-is.
-      res.type("application/json").send(text);
+      // Validate and reconcile the parsed receipt data
+      try {
+        const cleanedText = text.trim().replace(/^```json\n?/, "").replace(/\n?```$/, "").trim();
+        const parsed = JSON.parse(cleanedText);
+        const validated = validateAndReconcileReceipt(parsed);
+        res.type("application/json").json(validated);
+      } catch (error) {
+        console.error("Failed to validate receipt data:", error);
+        res.status(502).json({ error: "Failed to validate parsed receipt." });
+      }
     } catch (error) {
       console.error("Gemini proxy failed:", error);
       if (error?.name === "TimeoutError" || error?.name === "AbortError") {
