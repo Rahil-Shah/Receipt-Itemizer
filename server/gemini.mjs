@@ -28,26 +28,29 @@ const MAX_IMAGE_BASE64_LENGTH = 8 * 1024 * 1024;
 // buffer indefinitely.
 const UPSTREAM_TIMEOUT_MS = 90_000;
 
-const PROMPT_TEXT = `You are an expert receipt parser.
+const PROMPT_TEXT = `You are an expert receipt parser. Extract only what is directly shown on the receipt.
 
-Your job is to analyze a receipt image and extract purchasable items with the ACTUAL PRICE PAID.
+CRITICAL RULE: The price field is ALWAYS the single price shown next to each item on the receipt.
 
-CRITICAL: The "price" field must be the final amount the customer actually paid for that item.
+Discount field rules:
+- Set discount to 0 UNLESS the receipt explicitly shows BOTH an original/regular price AND a final/reduced price for the same item
+- Example: "Item $20 (reg $25)" → price: 20, discount: 5
+- Example: "Item $20" with "Discount -$5" nearby → price: 20, discount: 0 (don't guess original price)
+- NEVER calculate or infer discount amounts - only extract if both prices are shown
 
 Rules:
 
-1. Extract every purchased item with the price the customer actually paid (after any discounts).
-2. The price shown on the receipt next to the item IS the price to extract - this is what the customer actually paid.
-3. If a discount is shown separately (e.g., "Item $20, Discount -$5, You pay $15"), extract price as $15 (what they paid).
-4. Only include a discount amount if the receipt shows the original price AND the discounted price - in that case, discount is the difference.
-5. Preserve item order exactly as it appears on the receipt.
-6. Ignore store addresses, phone numbers, loyalty info, cashier info, payment methods, approval codes, card numbers, barcode values, and receipt IDs.
-7. Do not invent items.
-8. If text is unclear, make the best reasonable interpretation.
-9. Return valid JSON only - no markdown, no explanations, just JSON.
-10. All prices must be numeric values (positive).
-11. Extract subtotal, tax, and total from the receipt.
-12. If confidence is low for an item name, still include the item but add a lowConfidence flag.
+1. For each item, extract the ONE price shown next to it on the receipt - this is the amount the customer paid.
+2. Extract discount ONLY if the receipt shows an original price and a final price for that item. Then discount = original - final.
+3. Never invent or infer a discount amount - if only one price is shown, discount is always 0.
+4. Preserve item order exactly as it appears on the receipt.
+5. Ignore store addresses, phone numbers, loyalty info, payment methods, card numbers, barcodes, receipt IDs.
+6. Do not invent items.
+7. If text is unclear, make the best reasonable interpretation.
+8. Return valid JSON only - no markdown, no explanations, just JSON.
+9. All prices must be numeric values (positive).
+10. Extract subtotal, tax, and total from the receipt.
+11. If confidence is low for an item name, still include the item but add a lowConfidence flag.
 
 Return JSON in exactly this format, with no backticks or markdown:
 {
