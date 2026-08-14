@@ -105,6 +105,37 @@ Open `http://localhost:4173` in your browser.
 > The single Node/Express server serves the frontend **and** the `/api` routes. It never
 > exposes `.env` or source files over HTTP — the Gemini config is served via `/api/gemini-config`.
 
+### Database Management with pgweb
+
+To visually manage the Postgres database, pgweb provides a web-based PostgreSQL client:
+
+1. **Start pgweb** (runs in a separate Docker container):
+   ```bash
+   npm run pgweb:up
+   ```
+
+2. **Access pgweb** at `http://localhost:5050` in your browser.
+
+3. **Log in** with the following credentials:
+   - **Host**: `localhost`
+   - **Port**: `5433`
+   - **User**: `receipt`
+   - **Password**: `receipt`
+   - **Database**: `receipt_ring`
+
+4. Once logged in, you can:
+   - Browse tables and schemas
+   - Run SQL queries
+   - View and edit data directly
+   - Inspect the database structure
+
+5. To stop pgweb:
+   ```bash
+   npm run pgweb:down
+   ```
+
+> **Note**: pgweb runs independently of the main app and the Postgres container will continue running — it's just a GUI tool for database inspection and management.
+
 ### Architecture & Scaling
 
 ```
