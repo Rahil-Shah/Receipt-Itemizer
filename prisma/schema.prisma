@@ -117,6 +117,12 @@ model Receipt {
   rawOcrText    String?
   ocrDocument   Json?
   imageUrl      String?
+  // The receipt photo itself, kept with the row so it lives and dies with the
+  // receipt (no separate upload directory to back up or clean). Base64 without
+  // the data: prefix; imageMimeType doubles as the "has an image" flag, so
+  // queries can omit the heavy column and still know a photo exists.
+  imageData     String?
+  imageMimeType String?
   lines         ReceiptLine[]
   people        Person[]
   createdAt     DateTime     @default(now())
