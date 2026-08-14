@@ -1913,7 +1913,7 @@ var ReceiptRing;
                 this.elements.receiptTotal.textContent = this.currencyFormatService.format(grandTotal);
             }
             async extractAndItemizeReceipt(file) {
-                const model = localStorage.getItem("gemini_model") || "gemini-3.5-flash";
+                const model = localStorage.getItem("gemini_model") || "gemini-3.7-flash";
                 if (!this.userHasGeminiKey && !this.serverHasGeminiKey) {
                     this.setOcrStatus("Please add your Gemini API key in Settings first.", 1);
                     this.openSettings();
@@ -1983,11 +1983,11 @@ var ReceiptRing;
                 if (config.model) {
                     localStorage.setItem("gemini_model", config.model);
                 }
-                this.elements.geminiModel.value = localStorage.getItem("gemini_model") || "gemini-3.5-flash";
+                this.elements.geminiModel.value = localStorage.getItem("gemini_model") || "gemini-3.7-flash";
             }
             openSettings() {
                 this.elements.geminiApiKey.value = "";
-                this.elements.geminiModel.value = localStorage.getItem("gemini_model") || "gemini-3.5-flash";
+                this.elements.geminiModel.value = localStorage.getItem("gemini_model") || "gemini-3.7-flash";
                 this.renderGeminiKeyStatus();
                 this.elements.settingsModal.classList.remove("hidden");
             }

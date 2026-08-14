@@ -25,26 +25,29 @@ const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "im
 // body limit alone let a caller park a 16 MB buffer per in-flight request.
 const MAX_IMAGE_BASE64_LENGTH = 8 * 1024 * 1024;
 // Without a deadline, a hung upstream connection pinned a socket and its
-// buffer indefinitely. Increased to 60s for slower Gemini responses.
-const UPSTREAM_TIMEOUT_MS = 60_000;
+// buffer indefinitely.
+const UPSTREAM_TIMEOUT_MS = 90_000;
 
 const PROMPT_TEXT = `You are an expert receipt parser.
 
-Your job is to analyze a receipt image and extract purchasable items with their prices and discounts.
+Your job is to analyze a receipt image and extract purchasable items with the ACTUAL PRICE PAID.
+
+CRITICAL: The "price" field must be the final amount the customer actually paid for that item.
 
 Rules:
 
-1. Extract every purchased item with its price as shown on the receipt.
-2. If an item has a discount applied to it (coupon, sale, loyalty discount), include the discount amount in the item's discount field.
-3. Preserve item order exactly as it appears on the receipt.
-4. Ignore store addresses, phone numbers, loyalty info, cashier info, payment methods, approval codes, card numbers, barcode values, and receipt IDs unless needed for totals.
-5. Do not invent items.
-6. If text is unclear, make the best reasonable interpretation.
-7. Return valid JSON only - no markdown, no explanations, just JSON.
-8. All prices must be numeric values (positive for prices, positive for discount amounts).
-9. Extract subtotal, tax, and total from the receipt.
-10. If confidence is low for an item name, still include the item but add a lowConfidence flag.
-11. Discount amounts are always positive numbers representing the reduction amount.
+1. Extract every purchased item with the price the customer actually paid (after any discounts).
+2. The price shown on the receipt next to the item IS the price to extract - this is what the customer actually paid.
+3. If a discount is shown separately (e.g., "Item $20, Discount -$5, You pay $15"), extract price as $15 (what they paid).
+4. Only include a discount amount if the receipt shows the original price AND the discounted price - in that case, discount is the difference.
+5. Preserve item order exactly as it appears on the receipt.
+6. Ignore store addresses, phone numbers, loyalty info, cashier info, payment methods, approval codes, card numbers, barcode values, and receipt IDs.
+7. Do not invent items.
+8. If text is unclear, make the best reasonable interpretation.
+9. Return valid JSON only - no markdown, no explanations, just JSON.
+10. All prices must be numeric values (positive).
+11. Extract subtotal, tax, and total from the receipt.
+12. If confidence is low for an item name, still include the item but add a lowConfidence flag.
 
 Return JSON in exactly this format, with no backticks or markdown:
 {
@@ -65,8 +68,8 @@ Return JSON in exactly this format, with no backticks or markdown:
 Return ONLY valid JSON. No other text.`;
 
 // Validate receipt data and reconcile discount handling.
-// If discounts are shown but the math doesn't add up, determine if they're
-// baked into the item price or if they're truly separate.
+// Prices shown on receipt are what customer actually paid.
+// Discounts shown are only applied if the math requires it.
 function validateAndReconcileReceipt(data) {
   if (!data.items || !Array.isArray(data.items)) {
     return data;
@@ -76,23 +79,8 @@ function validateAndReconcileReceipt(data) {
   const total = Number(data.total) || 0;
   const expectedSubtotal = total - tax;
 
-  // Calculate sum with discounts applied
-  let sumWithDiscounts = 0;
-  data.items.forEach((item) => {
-    const price = Number(item.price) || 0;
-    const discount = Number(item.discount) || 0;
-    sumWithDiscounts += price - discount;
-  });
-
-  // Allow 1 cent of rounding error
-  const withDiscountMatch = Math.abs(sumWithDiscounts - expectedSubtotal) < 0.01;
-
-  if (withDiscountMatch) {
-    // Discounts are truly separate - keep them as-is
-    return data;
-  }
-
-  // Check if discounts are already baked in (sum without discounts matches expected)
+  // First, try prices as-is (without applying discounts)
+  // This assumes prices shown are what customer paid
   let sumWithoutDiscounts = 0;
   data.items.forEach((item) => {
     const price = Number(item.price) || 0;
@@ -102,7 +90,8 @@ function validateAndReconcileReceipt(data) {
   const withoutDiscountMatch = Math.abs(sumWithoutDiscounts - expectedSubtotal) < 0.01;
 
   if (withoutDiscountMatch) {
-    // Discounts are baked into the item prices - remove them
+    // Prices as shown match the total - discounts are informational only
+    // Remove all discount metadata
     data.items = data.items.map((item) => ({
       ...item,
       discount: 0
@@ -110,7 +99,22 @@ function validateAndReconcileReceipt(data) {
     return data;
   }
 
-  // If neither matches, return as-is (let client handle)
+  // If prices alone don't match, check if we need to apply the discounts
+  let sumWithDiscounts = 0;
+  data.items.forEach((item) => {
+    const price = Number(item.price) || 0;
+    const discount = Number(item.discount) || 0;
+    sumWithDiscounts += price - discount;
+  });
+
+  const withDiscountMatch = Math.abs(sumWithDiscounts - expectedSubtotal) < 0.01;
+
+  if (withDiscountMatch) {
+    // Discounts need to be applied - keep them
+    return data;
+  }
+
+  // If neither works, return as-is (let client handle)
   return data;
 }
 
@@ -264,7 +268,10 @@ export function registerGemini(app, requireAuth, prisma) {
     }
 
     try {
-      const url = `${GEMINI_HOST}/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const url = `${GEMINI_HOST}/v1/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      console.log("Sending request to Gemini...");
+      const startTime = Date.now();
+
       const upstream = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -281,9 +288,11 @@ export function registerGemini(app, requireAuth, prisma) {
         signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)
       });
 
+      const elapsedMs = Date.now() - startTime;
+      console.log(`Gemini response received in ${elapsedMs}ms`);
+
       const text = await upstream.text();
       if (!upstream.ok) {
-        // Do not forward the upstream body verbatim; it can echo the request/key context.
         console.error("Gemini upstream error:", upstream.status, text.slice(0, 300));
         try {
           const errorBody = JSON.parse(text);
@@ -297,22 +306,19 @@ export function registerGemini(app, requireAuth, prisma) {
           });
         }
       }
-      // Validate and reconcile the parsed receipt data
-      try {
-        const cleanedText = text.trim().replace(/^```json\n?/, "").replace(/\n?```$/, "").trim();
-        const parsed = JSON.parse(cleanedText);
-        const validated = validateAndReconcileReceipt(parsed);
-        res.type("application/json").json(validated);
-      } catch (error) {
-        console.error("Failed to validate receipt data:", error);
-        res.status(502).json({ error: "Failed to validate parsed receipt." });
-      }
+
+      console.log("Parsing and validating receipt data...");
+      const cleanedText = text.trim().replace(/^```json\n?/, "").replace(/\n?```$/, "").trim();
+      const parsed = JSON.parse(cleanedText);
+      const validated = validateAndReconcileReceipt(parsed);
+      console.log("Receipt validation complete");
+      res.type("application/json").json(validated);
     } catch (error) {
       console.error("Gemini proxy failed:", error);
       if (error?.name === "TimeoutError" || error?.name === "AbortError") {
         return res.status(504).json({ error: "The receipt parser took too long. Try again." });
       }
-      res.status(502).json({ error: "Could not reach the receipt parser." });
+      res.status(502).json({ error: `Could not reach the receipt parser: ${error?.message}` });
     }
   });
 }
