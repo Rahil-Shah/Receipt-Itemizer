@@ -124,6 +124,7 @@ var ReceiptRing;
                 keywords: [
                     "fuel",
                     "gas",
+                    "gasoline",
                     "parking",
                     "uber",
                     "lyft",
@@ -256,7 +257,11 @@ var ReceiptRing;
                     category,
                     createdAt: new Date().toISOString()
                 };
-                localStorage.setItem(this.storageKey, JSON.stringify(rules));
+                try {
+                    localStorage.setItem(this.storageKey, JSON.stringify(rules));
+                }
+                catch {
+                }
             }
             normalizeLabel(label) {
                 return label
@@ -270,7 +275,10 @@ var ReceiptRing;
             loadRules() {
                 try {
                     const rawRules = localStorage.getItem(this.storageKey);
-                    return rawRules ? JSON.parse(rawRules) : {};
+                    const parsed = rawRules ? JSON.parse(rawRules) : {};
+                    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+                        ? parsed
+                        : {};
                 }
                 catch {
                     return {};
@@ -330,9 +338,17 @@ var ReceiptRing;
                 let score = 0;
                 category.keywords.forEach((keyword) => {
                     const normalizedKeyword = this.ruleStorageService.normalizeLabel(keyword);
+                    if (!normalizedKeyword)
+                        return;
                     const keywordTokens = this.getTokens(normalizedKeyword);
-                    if (normalizedKeyword && normalizedLabel.includes(normalizedKeyword)) {
-                        score += keywordTokens.length > 1 ? 4.5 : 3;
+                    const isPhrase = keywordTokens.length > 1;
+                    if (isPhrase && normalizedLabel.includes(normalizedKeyword)) {
+                        score += 4.5;
+                        matchedTerms.push(keyword);
+                        return;
+                    }
+                    if (!isPhrase && tokens.includes(keywordTokens[0])) {
+                        score += 3;
                         matchedTerms.push(keyword);
                         return;
                     }
@@ -386,7 +402,7 @@ var ReceiptRing;
                 this.categorizationService = categorizationService;
                 this.idService = idService;
                 this.ignoredLabel = /^(total|subtotal|tax|cash|change|visa|mastercard|amex|debit|credit|balance|auth|approval|receipt)\b/i;
-                this.amountPattern = /(-?\$?\s*\d{1,4}(?:(?:,\d{3})+)?[,.]\d{2}|-?\$\s*\d{1,5})\s*$/;
+                this.amountPattern = /(?:^|\s)(-?\$?\s*\d+(?:,\d{3})*[,.]\d{2}|-?\$\s*\d+)\s*$/;
             }
             parse(text) {
                 return text
@@ -444,28 +460,38 @@ var ReceiptRing;
     (function (Services) {
         class SplitCalculatorService {
             calculate(people, lines, assignments, tax) {
-                const itemTotals = new Map();
-                people.forEach((person) => itemTotals.set(person.id, 0));
+                const itemCents = new Map();
+                people.forEach((person) => itemCents.set(person.id, 0));
+                let unallocatedCents = 0;
                 lines
                     .filter((line) => !line.ignored)
                     .forEach((line) => {
                     const lineAssignments = assignments.filter((assignment) => assignment.lineId === line.id);
-                    this.getLineShares(line, lineAssignments).forEach((amount, personId) => {
-                        itemTotals.set(personId, (itemTotals.get(personId) ?? 0) + amount);
+                    if (lineAssignments.length === 0)
+                        return;
+                    const shares = this.getLineShares(line, lineAssignments);
+                    let allocated = 0;
+                    shares.forEach((cents, personId) => {
+                        itemCents.set(personId, (itemCents.get(personId) ?? 0) + cents);
+                        allocated += cents;
                     });
+                    unallocatedCents += this.toCents(line.amount) - allocated;
                 });
-                const subtotal = Array.from(itemTotals.values()).reduce((sum, value) => sum + value, 0);
-                return people.map((person) => {
-                    const itemTotal = itemTotals.get(person.id) ?? 0;
-                    const allocatedTax = subtotal > 0 ? (itemTotal / subtotal) * tax : 0;
+                const orderedPeople = [...people];
+                const weights = orderedPeople.map((person) => itemCents.get(person.id) ?? 0);
+                const taxShares = this.distributeProportionally(this.toCents(tax), weights);
+                const totals = orderedPeople.map((person, index) => {
+                    const itemTotal = weights[index];
+                    const allocatedTax = taxShares[index];
                     return {
                         personId: person.id,
                         personName: person.name,
-                        itemTotal,
-                        allocatedTax,
-                        finalTotal: itemTotal + allocatedTax
+                        itemTotal: this.toAmount(itemTotal),
+                        allocatedTax: this.toAmount(allocatedTax),
+                        finalTotal: this.toAmount(itemTotal + allocatedTax)
                     };
                 });
+                return { totals, unallocated: this.toAmount(unallocatedCents) };
             }
             getUnassignedCount(lines, assignments) {
                 return lines.filter((line) => !line.ignored && !assignments.some((assignment) => assignment.lineId === line.id)).length;
@@ -474,23 +500,66 @@ var ReceiptRing;
                 const shares = new Map();
                 if (assignments.length === 0)
                     return shares;
+                const lineCents = this.toCents(line.amount);
                 if (assignments.every((assignment) => assignment.mode === "equal")) {
-                    const share = line.amount / assignments.length;
-                    assignments.forEach((assignment) => shares.set(assignment.personId, share));
+                    const even = this.distributeEvenly(lineCents, assignments.length);
+                    assignments.forEach((assignment, index) => shares.set(assignment.personId, even[index]));
                     return shares;
                 }
+                const equalCount = assignments.filter((assignment) => assignment.mode === "equal").length;
+                const equalShares = equalCount > 0 ? this.distributeEvenly(lineCents, assignments.length) : [];
+                let equalIndex = 0;
                 assignments.forEach((assignment) => {
                     if (assignment.mode === "percentage") {
-                        shares.set(assignment.personId, line.amount * (assignment.value / 100));
+                        shares.set(assignment.personId, Math.round(lineCents * (assignment.value / 100)));
                     }
                     else if (assignment.mode === "amount") {
-                        shares.set(assignment.personId, assignment.value);
+                        shares.set(assignment.personId, this.toCents(assignment.value));
                     }
                     else {
-                        shares.set(assignment.personId, line.amount / assignments.length);
+                        shares.set(assignment.personId, equalShares[equalIndex]);
+                        equalIndex += 1;
                     }
                 });
                 return shares;
+            }
+            distributeEvenly(totalCents, count) {
+                if (count <= 0)
+                    return [];
+                const base = Math.trunc(totalCents / count);
+                let remainder = totalCents - base * count;
+                const step = remainder < 0 ? -1 : 1;
+                return Array.from({ length: count }, () => {
+                    if (remainder === 0)
+                        return base;
+                    remainder -= step;
+                    return base + step;
+                });
+            }
+            distributeProportionally(totalCents, weights) {
+                const weightSum = weights.reduce((sum, weight) => sum + weight, 0);
+                if (weightSum === 0 || totalCents === 0)
+                    return weights.map(() => 0);
+                const exact = weights.map((weight) => (weight / weightSum) * totalCents);
+                const result = exact.map((value) => Math.trunc(value));
+                let remainder = totalCents - result.reduce((sum, value) => sum + value, 0);
+                const step = remainder < 0 ? -1 : 1;
+                const byFraction = exact
+                    .map((value, index) => ({ index, fraction: Math.abs(value - result[index]) }))
+                    .sort((left, right) => right.fraction - left.fraction);
+                for (const { index } of byFraction) {
+                    if (remainder === 0)
+                        break;
+                    result[index] += step;
+                    remainder -= step;
+                }
+                return result;
+            }
+            toCents(value) {
+                return Number.isFinite(value) ? Math.round(value * 100) : 0;
+            }
+            toAmount(cents) {
+                return cents / 100;
             }
         }
         Services.SplitCalculatorService = SplitCalculatorService;
@@ -507,14 +576,19 @@ var ReceiptRing;
             load() {
                 try {
                     const rawValue = localStorage.getItem(this.storageKey);
-                    return rawValue ? JSON.parse(rawValue) : [];
+                    const parsed = rawValue ? JSON.parse(rawValue) : [];
+                    return Array.isArray(parsed) ? parsed : [];
                 }
                 catch {
                     return [];
                 }
             }
             save(items) {
-                localStorage.setItem(this.storageKey, JSON.stringify(items));
+                try {
+                    localStorage.setItem(this.storageKey, JSON.stringify(items));
+                }
+                catch {
+                }
             }
         }
         Services.StorageService = StorageService;
@@ -755,6 +829,19 @@ var ReceiptRing;
                     throw new Error(await this.parseError(response));
                 return (await response.json());
             }
+            async listConnections() {
+                const response = await this.request("/api/plaid/connections");
+                if (!response.ok)
+                    throw new Error(await this.parseError(response));
+                return (await response.json());
+            }
+            async removeConnection(id) {
+                const response = await this.request(`/api/plaid/connections/${encodeURIComponent(id)}`, {
+                    method: "DELETE"
+                });
+                if (!response.ok)
+                    throw new Error(await this.parseError(response));
+            }
             async listTransactions() {
                 const response = await this.request("/api/transactions");
                 if (!response.ok)
@@ -831,7 +918,7 @@ var ReceiptRing;
                     .sort((a, b) => (a.month < b.month ? 1 : -1));
             }
             monthKey(dateStr) {
-                if (typeof dateStr === "string" && /^\d{4}-\d{2}/.test(dateStr)) {
+                if (typeof dateStr === "string" && /^\d{4}-\d{2}(-\d{2})?$/.test(dateStr)) {
                     return dateStr.slice(0, 7);
                 }
                 const date = new Date(dateStr);
@@ -933,12 +1020,14 @@ var ReceiptRing;
                     authSwitchText: this.getElement("#authSwitchText", HTMLElement),
                     authToggle: this.getElement("#authToggle", HTMLButtonElement),
                     logoutButton: this.getElement("#logoutButton", HTMLButtonElement),
+                    monthlyTrend: this.getElement("#monthlyTrend", HTMLElement),
                     budgetMonth: this.getElement("#budgetMonth", HTMLSelectElement),
                     budgetRing: this.getElement("#budgetRing", HTMLElement),
                     budgetLegend: this.getElement("#budgetLegend", HTMLElement),
                     connectBankButton: this.getElement("#connectBankButton", HTMLButtonElement),
                     refreshTransactionsButton: this.getElement("#refreshTransactionsButton", HTMLButtonElement),
                     bankStatus: this.getElement("#bankStatus", HTMLElement),
+                    bankConnections: this.getElement("#bankConnections", HTMLElement),
                     transactionsList: this.getElement("#transactionsList", HTMLElement),
                     transactionsEmpty: this.getElement("#transactionsEmpty", HTMLElement)
                 };
@@ -1130,6 +1219,77 @@ var ReceiptRing;
 (function (ReceiptRing) {
     var UI;
     (function (UI) {
+        class MonthlyTrendView {
+            constructor(currencyFormatService) {
+                this.currencyFormatService = currencyFormatService;
+            }
+            render(container, months, selectedMonth, onSelect) {
+                const hadFocus = container.contains(document.activeElement);
+                container.replaceChildren();
+                if (months.length === 0) {
+                    const empty = document.createElement("p");
+                    empty.className = "budget-ring-empty";
+                    empty.textContent = "No spending recorded yet.";
+                    container.append(empty);
+                    return;
+                }
+                const chronological = [...months].reverse();
+                const max = Math.max(...chronological.map((entry) => entry.total));
+                const chart = document.createElement("div");
+                chart.className = "trend-chart";
+                let selectedBar = null;
+                for (const entry of chronological) {
+                    const bar = this.buildBar(entry, max, entry.month === selectedMonth, onSelect);
+                    if (entry.month === selectedMonth)
+                        selectedBar = bar;
+                    chart.append(bar);
+                }
+                container.append(chart);
+                if (hadFocus && selectedBar) {
+                    selectedBar.focus();
+                }
+            }
+            buildBar(entry, max, isSelected, onSelect) {
+                const column = document.createElement("button");
+                column.type = "button";
+                column.className = "trend-bar-col";
+                column.classList.toggle("is-selected", isSelected);
+                column.setAttribute("aria-pressed", String(isSelected));
+                column.setAttribute("aria-label", `${this.monthLabel(entry.month, true)}: ${this.currencyFormatService.format(entry.total)}`);
+                column.addEventListener("click", () => onSelect(entry.month));
+                const value = document.createElement("span");
+                value.className = "trend-bar-value";
+                value.textContent = this.currencyFormatService.format(entry.total);
+                const track = document.createElement("span");
+                track.className = "trend-bar-track";
+                const fill = document.createElement("span");
+                fill.className = "trend-bar-fill";
+                const percent = max > 0 ? Math.round((entry.total / max) * 100) : 0;
+                fill.style.height = `${percent}%`;
+                track.append(fill);
+                const label = document.createElement("span");
+                label.className = "trend-bar-label";
+                label.textContent = this.monthLabel(entry.month, false);
+                column.append(value, track, label);
+                return column;
+            }
+            monthLabel(key, includeYear) {
+                const [year, month] = key.split("-").map(Number);
+                if (!year || !month)
+                    return key;
+                return new Date(year, month - 1, 1).toLocaleDateString(undefined, {
+                    month: "short",
+                    ...(includeYear ? { year: "numeric" } : {})
+                });
+            }
+        }
+        UI.MonthlyTrendView = MonthlyTrendView;
+    })(UI = ReceiptRing.UI || (ReceiptRing.UI = {}));
+})(ReceiptRing || (ReceiptRing = {}));
+var ReceiptRing;
+(function (ReceiptRing) {
+    var UI;
+    (function (UI) {
         const MODE_LABELS = {
             equal: "Split evenly",
             percentage: "Split by percentage",
@@ -1138,8 +1298,18 @@ var ReceiptRing;
         class SplitWorkspaceView {
             constructor(currencyFormatService) {
                 this.currencyFormatService = currencyFormatService;
+                this.panelListeners = null;
             }
             renderLines(container, lines, assignments, people, lineModes, handlers) {
+                const openLineIds = new Set();
+                container
+                    .querySelectorAll("details.assign-dropdown[open]")
+                    .forEach((dropdown) => {
+                    if (dropdown.dataset.lineId)
+                        openLineIds.add(dropdown.dataset.lineId);
+                });
+                this.panelListeners?.abort();
+                this.panelListeners = new AbortController();
                 container.innerHTML = "";
                 lines.forEach((line) => {
                     const row = document.createElement("div");
@@ -1150,7 +1320,8 @@ var ReceiptRing;
                     name.textContent = line.label;
                     const assignCell = document.createElement("div");
                     assignCell.className = "assign-cell";
-                    assignCell.append(this.buildAssignDropdown(line, assignments, people, lineModes, handlers));
+                    const dropdown = this.buildAssignDropdown(line, assignments, people, lineModes, handlers);
+                    assignCell.append(dropdown);
                     const amount = document.createElement("span");
                     amount.className = "amount-cell";
                     amount.textContent = this.currencyFormatService.format(line.amount);
@@ -1162,6 +1333,9 @@ var ReceiptRing;
                     ignore.addEventListener("click", () => handlers.onLineIgnore(line.id));
                     row.append(name, assignCell, amount, ignore);
                     container.append(row);
+                    if (openLineIds.has(line.id)) {
+                        dropdown.open = true;
+                    }
                 });
             }
             buildAssignDropdown(line, assignments, people, lineModes, handlers) {
@@ -1169,6 +1343,7 @@ var ReceiptRing;
                 const mode = lineModes.get(line.id) ?? "equal";
                 const details = document.createElement("details");
                 details.className = "assign-dropdown";
+                details.dataset.lineId = line.id;
                 const summary = document.createElement("summary");
                 summary.className = "assign-summary";
                 summary.textContent = this.getAssignmentSummary(lineAssignments, people);
@@ -1186,8 +1361,9 @@ var ReceiptRing;
                     if (details.open) {
                         this.closeOtherDropdowns(details);
                         this.positionPanel(summary, panel);
-                        window.addEventListener("scroll", reposition, true);
-                        window.addEventListener("resize", reposition);
+                        const signal = this.panelListeners?.signal;
+                        window.addEventListener("scroll", reposition, { capture: true, signal });
+                        window.addEventListener("resize", reposition, { signal });
                     }
                     else {
                         this.teardownPanelPositioning(reposition);
@@ -1258,9 +1434,9 @@ var ReceiptRing;
                     container.append(row);
                 });
             }
-            renderTotals(container, totals) {
+            renderTotals(container, summary) {
                 container.innerHTML = "";
-                totals.forEach((total) => {
+                summary.totals.forEach((total) => {
                     const row = document.createElement("div");
                     row.className = "split-total-row";
                     const name = document.createElement("strong");
@@ -1274,6 +1450,19 @@ var ReceiptRing;
                     row.append(name, items, tax, final);
                     container.append(row);
                 });
+                if (Math.abs(summary.unallocated) >= 0.01) {
+                    const row = document.createElement("div");
+                    row.className = "split-total-row is-unallocated";
+                    const name = document.createElement("strong");
+                    name.textContent = "Unallocated";
+                    const detail = document.createElement("span");
+                    detail.textContent = "Not covered by the amounts entered";
+                    const spacer = document.createElement("span");
+                    const value = document.createElement("b");
+                    value.textContent = this.currencyFormatService.format(summary.unallocated);
+                    row.append(name, detail, spacer, value);
+                    container.append(row);
+                }
             }
             renderHistory(container, receipts, onDelete) {
                 container.innerHTML = "";
@@ -1410,6 +1599,8 @@ var ReceiptRing;
                 this.bindEvents();
             }
             prompt(item) {
+                this.activeResolve?.(null);
+                this.activeResolve = null;
                 this.elements.categoryPromptItem.textContent = item.label;
                 this.elements.categoryPromptSelect.value = item.category;
                 this.elements.categoryPromptRemember.checked = false;
@@ -1431,11 +1622,38 @@ var ReceiptRing;
             bindEvents() {
                 this.elements.categoryPromptSave.addEventListener("click", () => this.resolvePrompt());
                 this.elements.categoryPromptSkip.addEventListener("click", () => this.closePrompt(null));
-                this.elements.categoryPrompt.addEventListener("keydown", (event) => {
+                document.addEventListener("keydown", (event) => {
+                    if (this.activeResolve === null)
+                        return;
                     if (event.key === "Escape") {
+                        this.closePrompt(null);
+                        return;
+                    }
+                    if (event.key === "Tab") {
+                        this.keepFocusInDialog(event);
+                    }
+                });
+                this.elements.categoryPrompt.addEventListener("click", (event) => {
+                    if (event.target === this.elements.categoryPrompt) {
                         this.closePrompt(null);
                     }
                 });
+            }
+            keepFocusInDialog(event) {
+                const focusable = this.elements.categoryPrompt.querySelectorAll("select, input, button, [href], textarea, [tabindex]:not([tabindex='-1'])");
+                if (focusable.length === 0)
+                    return;
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                const active = document.activeElement;
+                if (event.shiftKey && (active === first || !this.elements.categoryPrompt.contains(active))) {
+                    event.preventDefault();
+                    last.focus();
+                }
+                else if (!event.shiftKey && (active === last || !this.elements.categoryPrompt.contains(active))) {
+                    event.preventDefault();
+                    first.focus();
+                }
             }
             resolvePrompt() {
                 this.closePrompt({
@@ -1458,7 +1676,7 @@ var ReceiptRing;
     var App;
     (function (App) {
         class AppController {
-            constructor(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView) {
+            constructor(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView) {
                 this.elements = elements;
                 this.parserService = parserService;
                 this.categorizationService = categorizationService;
@@ -1475,6 +1693,7 @@ var ReceiptRing;
                 this.bankApiService = bankApiService;
                 this.spendingAggregatorService = spendingAggregatorService;
                 this.budgetRingView = budgetRingView;
+                this.monthlyTrendView = monthlyTrendView;
                 this.receiptLines = [];
                 this.people = [];
                 this.assignments = [];
@@ -1484,6 +1703,7 @@ var ReceiptRing;
                 this.isPromptingForCategories = false;
                 this.reviewTimer = null;
                 this.bankTransactions = [];
+                this.bankConnections = [];
                 this.monthlySpend = [];
                 this.selectedMonth = null;
                 this.serverHasGeminiKey = false;
@@ -1528,8 +1748,7 @@ var ReceiptRing;
                 this.elements.connectBankButton.addEventListener("click", () => void this.connectBank());
                 this.elements.refreshTransactionsButton.addEventListener("click", () => void this.refreshTransactions());
                 this.elements.budgetMonth.addEventListener("change", () => {
-                    this.selectedMonth = this.elements.budgetMonth.value || null;
-                    this.renderRing();
+                    this.selectMonth(this.elements.budgetMonth.value || null);
                 });
                 this.elements.tabButtons.forEach((button) => {
                     button.addEventListener("click", () => this.switchTab(button.dataset.tab));
@@ -1570,6 +1789,7 @@ var ReceiptRing;
             }
             handleImageInput() {
                 const file = this.elements.receiptImage.files?.[0];
+                this.elements.receiptImage.value = "";
                 if (file) {
                     this.processReceiptImage(file);
                 }
@@ -2020,13 +2240,14 @@ var ReceiptRing;
                 try {
                     this.setBankStatus("Linking account…");
                     const result = await this.bankApiService.exchange(publicToken, metadata);
-                    this.setBankStatus(`Connected ${result.institutionName ?? "bank"}. Syncing…`);
-                    const { imported, pending } = await this.bankApiService.sync();
-                    if (pending && imported === 0) {
+                    const bank = result.institutionName ?? "bank";
+                    this.setBankStatus(result.replaced ? `Reconnected ${bank}, replacing the earlier link. Syncing…` : `Connected ${bank}. Syncing…`);
+                    const sync = await this.bankApiService.sync();
+                    if (sync.pending && sync.imported === 0) {
                         this.setBankStatus("Connected. Your bank is still preparing transactions — reopen Budgeting in a minute.");
                     }
                     else {
-                        this.setBankStatus(`Imported ${imported} transaction${imported === 1 ? "" : "s"}.`);
+                        this.setBankStatus(this.describeSync(sync));
                     }
                     await this.loadBudgeting({ sync: false });
                 }
@@ -2034,16 +2255,29 @@ var ReceiptRing;
                     this.setBankStatus(error instanceof Error ? error.message : "Bank linking failed.");
                 }
             }
+            describeSync(result) {
+                const imported = `Imported ${result.imported} transaction${result.imported === 1 ? "" : "s"}.`;
+                const errors = result.errors ?? [];
+                if (errors.length === 0)
+                    return imported;
+                const details = errors
+                    .map((error) => `${error.institutionName ?? "A bank"}: ${error.message}`)
+                    .join(" ");
+                const hint = errors.some((error) => error.reconnectRequired)
+                    ? " Use Connect bank to reconnect it — that replaces the old link instead of duplicating it."
+                    : "";
+                return `${imported} ${details}${hint}`;
+            }
             async refreshTransactions() {
                 this.elements.refreshTransactionsButton.setAttribute("disabled", "true");
                 try {
                     this.setBankStatus("Refreshing…");
-                    const { imported, pending } = await this.bankApiService.sync();
-                    if (pending && imported === 0) {
+                    const sync = await this.bankApiService.sync();
+                    if (sync.pending && sync.imported === 0 && (sync.errors ?? []).length === 0) {
                         this.setBankStatus("Your bank is still preparing transactions — try again in a minute.");
                     }
                     else {
-                        this.setBankStatus(`Imported ${imported} new transaction${imported === 1 ? "" : "s"}.`);
+                        this.setBankStatus(this.describeSync(sync));
                     }
                     await this.loadBudgeting({ sync: false });
                 }
@@ -2075,9 +2309,17 @@ var ReceiptRing;
                 catch {
                     this.bankTransactions = [];
                 }
+                try {
+                    this.bankConnections = await this.bankApiService.listConnections();
+                }
+                catch {
+                    this.bankConnections = [];
+                }
                 this.monthlySpend = this.spendingAggregatorService.aggregate(receipts, this.bankTransactions);
                 this.populateMonths();
+                this.renderConnections();
                 this.renderTransactions();
+                this.renderTrend();
                 this.renderRing();
             }
             populateMonths() {
@@ -2099,9 +2341,62 @@ var ReceiptRing;
                     : this.monthlySpend[0].month;
                 select.value = this.selectedMonth ?? "";
             }
+            renderConnections() {
+                const container = this.elements.bankConnections;
+                container.replaceChildren();
+                if (this.bankConnections.length === 0)
+                    return;
+                for (const connection of this.bankConnections) {
+                    const row = document.createElement("div");
+                    row.className = "bank-connection-row";
+                    const main = document.createElement("div");
+                    main.className = "bank-connection-main";
+                    const name = document.createElement("span");
+                    name.className = "bank-connection-name";
+                    name.textContent = connection.institutionName ?? "Linked bank";
+                    const meta = document.createElement("span");
+                    meta.className = "bank-connection-meta";
+                    const accounts = `${connection.accounts} account${connection.accounts === 1 ? "" : "s"}`;
+                    const transactions = `${connection.transactions} transaction${connection.transactions === 1 ? "" : "s"}`;
+                    meta.textContent = `${accounts} · ${transactions}`;
+                    main.append(name, meta);
+                    const remove = document.createElement("button");
+                    remove.type = "button";
+                    remove.className = "btn btn-ghost btn-small";
+                    remove.textContent = "Remove";
+                    remove.addEventListener("click", () => void this.removeConnection(connection));
+                    row.append(main, remove);
+                    container.append(row);
+                }
+            }
+            async removeConnection(connection) {
+                const label = connection.institutionName ?? "this bank";
+                if (!window.confirm(`Remove ${label}? Its ${connection.transactions} imported transaction${connection.transactions === 1 ? "" : "s"} will be deleted. Saved receipts are not affected.`)) {
+                    return;
+                }
+                try {
+                    this.setBankStatus("Removing…");
+                    await this.bankApiService.removeConnection(connection.id);
+                    this.setBankStatus(`Removed ${label}.`);
+                    await this.loadBudgeting({ sync: false });
+                }
+                catch (error) {
+                    this.setBankStatus(error instanceof Error ? error.message : "Could not remove the bank.");
+                }
+            }
             renderRing() {
                 const month = this.monthlySpend.find((entry) => entry.month === this.selectedMonth) ?? null;
                 this.budgetRingView.render(this.elements.budgetRing, this.elements.budgetLegend, month);
+            }
+            renderTrend() {
+                this.monthlyTrendView.render(this.elements.monthlyTrend, this.monthlySpend, this.selectedMonth, (month) => this.selectMonth(month));
+            }
+            selectMonth(month) {
+                this.selectedMonth = month;
+                this.elements.budgetMonth.value = month ?? "";
+                this.renderTrend();
+                this.renderRing();
+                this.renderTransactions();
             }
             formatMonthLabel(key) {
                 const [year, month] = key.split("-").map(Number);
@@ -2112,10 +2407,20 @@ var ReceiptRing;
                     year: "numeric"
                 });
             }
+            formatTransactionDate(value) {
+                const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+                if (!match)
+                    return new Date(value).toLocaleDateString();
+                const [, year, month, day] = match;
+                return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString();
+            }
             renderTransactions() {
                 const list = this.elements.transactionsList;
-                const transactions = this.bankTransactions;
+                const transactions = this.selectedMonth
+                    ? this.bankTransactions.filter((txn) => this.spendingAggregatorService.monthKey(txn.date) === this.selectedMonth)
+                    : this.bankTransactions;
                 this.elements.transactionsEmpty.classList.toggle("hidden", transactions.length > 0);
+                this.setTransactionsEmptyMessage(transactions.length === 0);
                 list.replaceChildren();
                 for (const txn of transactions.slice(0, 100)) {
                     const row = document.createElement("div");
@@ -2127,7 +2432,7 @@ var ReceiptRing;
                     desc.textContent = txn.description ?? "Transaction";
                     const meta = document.createElement("span");
                     meta.className = "transaction-meta";
-                    const date = new Date(txn.date).toLocaleDateString();
+                    const date = this.formatTransactionDate(txn.date);
                     meta.textContent = txn.category ? `${date} · ${txn.category}` : date;
                     main.append(desc, meta);
                     const amount = document.createElement("span");
@@ -2135,6 +2440,21 @@ var ReceiptRing;
                     amount.textContent = this.currencyFormatService.format(txn.amount);
                     row.append(main, amount);
                     list.append(row);
+                }
+            }
+            setTransactionsEmptyMessage(isEmpty) {
+                if (!isEmpty)
+                    return;
+                const heading = this.elements.transactionsEmpty.querySelector("strong");
+                const detail = this.elements.transactionsEmpty.querySelector("span");
+                const hasAnyTransactions = this.bankTransactions.length > 0;
+                if (heading) {
+                    heading.textContent = hasAnyTransactions ? "No transactions this month" : "No transactions yet";
+                }
+                if (detail) {
+                    detail.textContent = hasAnyTransactions
+                        ? "Pick another month to see its activity."
+                        : "Connect a bank to import read-only transactions.";
                 }
             }
             scheduleCategoryReview() {
@@ -2212,8 +2532,9 @@ var ReceiptRing;
     const categoryPromptView = new ReceiptRing.UI.CategoryPromptView(categories, elements);
     const splitWorkspaceView = new ReceiptRing.UI.SplitWorkspaceView(currencyFormatService);
     const budgetRingView = new ReceiptRing.UI.BudgetRingView(currencyFormatService);
+    const monthlyTrendView = new ReceiptRing.UI.MonthlyTrendView(currencyFormatService);
     const authView = new ReceiptRing.UI.AuthView(elements, authApiService);
-    const controller = new ReceiptRing.App.AppController(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView);
+    const controller = new ReceiptRing.App.AppController(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView);
     let started = false;
     const startApp = () => {
         if (started)

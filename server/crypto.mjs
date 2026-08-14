@@ -33,8 +33,22 @@ export async function verifyPassword(password, stored) {
 
   const salt = Buffer.from(saltHex, "hex");
   const expected = Buffer.from(hashHex, "hex");
-  const derived = await scrypt(password, salt, expected.length);
-  return derived.length === expected.length && crypto.timingSafeEqual(derived, expected);
+  // Derive to our own key length rather than to whatever length the stored
+  // value claims. A short stored digest would otherwise shrink the comparison
+  // to a handful of bytes, making a random password guessable by brute force.
+  if (expected.length !== SCRYPT_KEYLEN || salt.length !== SALT_BYTES) return false;
+
+  const derived = await scrypt(password, salt, SCRYPT_KEYLEN);
+  return crypto.timingSafeEqual(derived, expected);
+}
+
+/**
+ * A real hash of an unguessable password, for verifying against when no user
+ * (or no stored hash) exists. Keeps login timing uniform without introducing a
+ * degenerate value that a real password could ever match.
+ */
+export async function dummyPasswordHash() {
+  return hashPassword(crypto.randomBytes(32).toString("hex"));
 }
 
 // --- Secret encryption at rest (AES-256-GCM) -------------------------------

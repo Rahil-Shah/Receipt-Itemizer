@@ -12,6 +12,7 @@ namespace ReceiptRing.App {
     private isPromptingForCategories = false;
     private reviewTimer: number | null = null;
     private bankTransactions: Services.BankTransaction[] = [];
+    private bankConnections: Services.BankConnection[] = [];
     private monthlySpend: Services.MonthlySpend[] = [];
     private selectedMonth: string | null = null;
     private serverHasGeminiKey = false;
@@ -33,7 +34,8 @@ namespace ReceiptRing.App {
       private readonly receiptApiService: Services.ReceiptApiService,
       private readonly bankApiService: Services.BankApiService,
       private readonly spendingAggregatorService: Services.SpendingAggregatorService,
-      private readonly budgetRingView: UI.BudgetRingView
+      private readonly budgetRingView: UI.BudgetRingView,
+      private readonly monthlyTrendView: UI.MonthlyTrendView
     ) {
       this.items = this.storageService.load();
     }
@@ -75,8 +77,7 @@ namespace ReceiptRing.App {
       this.elements.connectBankButton.addEventListener("click", () => void this.connectBank());
       this.elements.refreshTransactionsButton.addEventListener("click", () => void this.refreshTransactions());
       this.elements.budgetMonth.addEventListener("change", () => {
-        this.selectedMonth = this.elements.budgetMonth.value || null;
-        this.renderRing();
+        this.selectMonth(this.elements.budgetMonth.value || null);
       });
 
       this.elements.tabButtons.forEach((button) => {
@@ -125,6 +126,10 @@ namespace ReceiptRing.App {
 
     private handleImageInput(): void {
       const file = this.elements.receiptImage.files?.[0];
+      // Clear the input once the file is in hand. Otherwise picking the *same*
+      // file again fires no change event, so retrying after a failed parse did
+      // nothing at all and the app looked dead.
+      this.elements.receiptImage.value = "";
       if (file) {
         this.processReceiptImage(file);
       }
@@ -660,18 +665,41 @@ namespace ReceiptRing.App {
       try {
         this.setBankStatus("Linking account…");
         const result = await this.bankApiService.exchange(publicToken, metadata);
-        this.setBankStatus(`Connected ${result.institutionName ?? "bank"}. Syncing…`);
-        const { imported, pending } = await this.bankApiService.sync();
-        if (pending && imported === 0) {
+        const bank = result.institutionName ?? "bank";
+        // A re-link replaces the previous connection server-side rather than
+        // stacking a second copy of the same history on top of it — say so, so
+        // the missing "duplicate" isn't mistaken for lost data.
+        this.setBankStatus(
+          result.replaced ? `Reconnected ${bank}, replacing the earlier link. Syncing…` : `Connected ${bank}. Syncing…`
+        );
+        const sync = await this.bankApiService.sync();
+        if (sync.pending && sync.imported === 0) {
           // Plaid is still preparing the initial history — not an error.
           this.setBankStatus("Connected. Your bank is still preparing transactions — reopen Budgeting in a minute.");
         } else {
-          this.setBankStatus(`Imported ${imported} transaction${imported === 1 ? "" : "s"}.`);
+          this.setBankStatus(this.describeSync(sync));
         }
         await this.loadBudgeting({ sync: false });
       } catch (error) {
         this.setBankStatus(error instanceof Error ? error.message : "Bank linking failed.");
       }
+    }
+
+    // One sentence covering what came in plus anything that went wrong, so a
+    // bank that needs re-authenticating says so instead of looking like an
+    // empty refresh.
+    private describeSync(result: Services.SyncResult): string {
+      const imported = `Imported ${result.imported} transaction${result.imported === 1 ? "" : "s"}.`;
+      const errors = result.errors ?? [];
+      if (errors.length === 0) return imported;
+
+      const details = errors
+        .map((error) => `${error.institutionName ?? "A bank"}: ${error.message}`)
+        .join(" ");
+      const hint = errors.some((error) => error.reconnectRequired)
+        ? " Use Connect bank to reconnect it — that replaces the old link instead of duplicating it."
+        : "";
+      return `${imported} ${details}${hint}`;
     }
 
     // Explicit re-sync using the stored access token — no re-linking or bank
@@ -681,11 +709,11 @@ namespace ReceiptRing.App {
       this.elements.refreshTransactionsButton.setAttribute("disabled", "true");
       try {
         this.setBankStatus("Refreshing…");
-        const { imported, pending } = await this.bankApiService.sync();
-        if (pending && imported === 0) {
+        const sync = await this.bankApiService.sync();
+        if (sync.pending && sync.imported === 0 && (sync.errors ?? []).length === 0) {
           this.setBankStatus("Your bank is still preparing transactions — try again in a minute.");
         } else {
-          this.setBankStatus(`Imported ${imported} new transaction${imported === 1 ? "" : "s"}.`);
+          this.setBankStatus(this.describeSync(sync));
         }
         await this.loadBudgeting({ sync: false });
       } catch (error) {
@@ -719,9 +747,16 @@ namespace ReceiptRing.App {
       } catch {
         this.bankTransactions = [];
       }
+      try {
+        this.bankConnections = await this.bankApiService.listConnections();
+      } catch {
+        this.bankConnections = [];
+      }
       this.monthlySpend = this.spendingAggregatorService.aggregate(receipts, this.bankTransactions);
       this.populateMonths();
+      this.renderConnections();
       this.renderTransactions();
+      this.renderTrend();
       this.renderRing();
     }
 
@@ -747,9 +782,84 @@ namespace ReceiptRing.App {
       select.value = this.selectedMonth ?? "";
     }
 
+    // Show what is actually linked. Without this the only evidence of a bank
+    // connection is the transaction list, so a user with a stale or doubled-up
+    // link has no way to see it, let alone remove it.
+    private renderConnections(): void {
+      const container = this.elements.bankConnections;
+      container.replaceChildren();
+      if (this.bankConnections.length === 0) return;
+
+      for (const connection of this.bankConnections) {
+        const row = document.createElement("div");
+        row.className = "bank-connection-row";
+
+        const main = document.createElement("div");
+        main.className = "bank-connection-main";
+        const name = document.createElement("span");
+        name.className = "bank-connection-name";
+        name.textContent = connection.institutionName ?? "Linked bank";
+        const meta = document.createElement("span");
+        meta.className = "bank-connection-meta";
+        const accounts = `${connection.accounts} account${connection.accounts === 1 ? "" : "s"}`;
+        const transactions = `${connection.transactions} transaction${connection.transactions === 1 ? "" : "s"}`;
+        meta.textContent = `${accounts} · ${transactions}`;
+        main.append(name, meta);
+
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "btn btn-ghost btn-small";
+        remove.textContent = "Remove";
+        remove.addEventListener("click", () => void this.removeConnection(connection));
+
+        row.append(main, remove);
+        container.append(row);
+      }
+    }
+
+    private async removeConnection(connection: Services.BankConnection): Promise<void> {
+      const label = connection.institutionName ?? "this bank";
+      if (
+        !window.confirm(
+          `Remove ${label}? Its ${connection.transactions} imported transaction${
+            connection.transactions === 1 ? "" : "s"
+          } will be deleted. Saved receipts are not affected.`
+        )
+      ) {
+        return;
+      }
+      try {
+        this.setBankStatus("Removing…");
+        await this.bankApiService.removeConnection(connection.id);
+        this.setBankStatus(`Removed ${label}.`);
+        await this.loadBudgeting({ sync: false });
+      } catch (error) {
+        this.setBankStatus(error instanceof Error ? error.message : "Could not remove the bank.");
+      }
+    }
+
     private renderRing(): void {
       const month = this.monthlySpend.find((entry) => entry.month === this.selectedMonth) ?? null;
       this.budgetRingView.render(this.elements.budgetRing, this.elements.budgetLegend, month);
+    }
+
+    private renderTrend(): void {
+      this.monthlyTrendView.render(
+        this.elements.monthlyTrend,
+        this.monthlySpend,
+        this.selectedMonth,
+        (month) => this.selectMonth(month)
+      );
+    }
+
+    // Point the whole budgeting view at one month, keeping the dropdown, ring,
+    // and trend-chart highlight in sync no matter which of them triggered it.
+    private selectMonth(month: string | null): void {
+      this.selectedMonth = month;
+      this.elements.budgetMonth.value = month ?? "";
+      this.renderTrend();
+      this.renderRing();
+      this.renderTransactions();
     }
 
     private formatMonthLabel(key: string): string {
@@ -761,10 +871,28 @@ namespace ReceiptRing.App {
       });
     }
 
+    // Bank transactions carry a calendar date ("YYYY-MM-DD"), which must be
+    // rendered as that same day everywhere. Handing it to `new Date(...)` would
+    // read it as UTC midnight and print the day before for anyone west of UTC,
+    // so build the date from its parts in local time instead.
+    private formatTransactionDate(value: string): string {
+      const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+      if (!match) return new Date(value).toLocaleDateString();
+      const [, year, month, day] = match;
+      return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString();
+    }
+
     private renderTransactions(): void {
       const list = this.elements.transactionsList;
-      const transactions = this.bankTransactions;
+      // Scope the list to the month the rest of the view is focused on so the
+      // transactions line up with the ring and the selected trend bar.
+      const transactions = this.selectedMonth
+        ? this.bankTransactions.filter(
+            (txn) => this.spendingAggregatorService.monthKey(txn.date) === this.selectedMonth
+          )
+        : this.bankTransactions;
       this.elements.transactionsEmpty.classList.toggle("hidden", transactions.length > 0);
+      this.setTransactionsEmptyMessage(transactions.length === 0);
       list.replaceChildren();
 
       for (const txn of transactions.slice(0, 100)) {
@@ -778,7 +906,7 @@ namespace ReceiptRing.App {
         desc.textContent = txn.description ?? "Transaction";
         const meta = document.createElement("span");
         meta.className = "transaction-meta";
-        const date = new Date(txn.date).toLocaleDateString();
+        const date = this.formatTransactionDate(txn.date);
         meta.textContent = txn.category ? `${date} · ${txn.category}` : date;
         main.append(desc, meta);
 
@@ -788,6 +916,23 @@ namespace ReceiptRing.App {
 
         row.append(main, amount);
         list.append(row);
+      }
+    }
+
+    // The empty state does double duty: no bank linked at all, versus a linked
+    // bank that simply has no activity in the month currently in focus.
+    private setTransactionsEmptyMessage(isEmpty: boolean): void {
+      if (!isEmpty) return;
+      const heading = this.elements.transactionsEmpty.querySelector("strong");
+      const detail = this.elements.transactionsEmpty.querySelector("span");
+      const hasAnyTransactions = this.bankTransactions.length > 0;
+      if (heading) {
+        heading.textContent = hasAnyTransactions ? "No transactions this month" : "No transactions yet";
+      }
+      if (detail) {
+        detail.textContent = hasAnyTransactions
+          ? "Pick another month to see its activity."
+          : "Connect a bank to import read-only transactions.";
       }
     }
 

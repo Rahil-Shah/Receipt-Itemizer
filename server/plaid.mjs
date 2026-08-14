@@ -11,9 +11,11 @@
 
 import https from "node:https";
 
+// Plaid retired the Development environment; sandbox and production are the
+// only ones that still serve, so an unrecognised PLAID_ENV falls back to
+// sandbox rather than pointing at a host that no longer answers.
 const PLAID_HOSTS = {
   sandbox: "sandbox.plaid.com",
-  development: "development.plaid.com",
   production: "production.plaid.com"
 };
 
@@ -109,9 +111,26 @@ export function exchangePublicToken(publicToken) {
   return request("/item/public_token/exchange", { public_token: publicToken });
 }
 
+/**
+ * Fetch Item metadata (read-only). Used to learn which institution an existing
+ * connection belongs to when it was stored before institutionId was recorded.
+ */
+export function getItem(accessToken) {
+  return request("/item/get", { access_token: accessToken });
+}
+
 /** List the accounts reachable with this access token (read-only). */
 export function getAccounts(accessToken) {
   return request("/accounts/get", { access_token: accessToken });
+}
+
+/**
+ * Release an Item we no longer store (the user unlinked it, or re-linked the
+ * same bank and this Item was superseded). This only revokes our own access
+ * token — it reads nothing and cannot move money.
+ */
+export function removeItem(accessToken) {
+  return request("/item/remove", { access_token: accessToken });
 }
 
 /**

@@ -227,6 +227,15 @@
 
       <div class="tab-view hidden" id="budgetingView">
         <div class="workspace" aria-label="Budgeting workspace">
+          <section class="panel panel-wide" aria-label="Spending over time">
+            <header class="panel-header">
+              <h2>Spending over time</h2>
+            </header>
+            <div class="panel-body">
+              <div class="monthly-trend" id="monthlyTrend"></div>
+            </div>
+          </section>
+
           <section class="panel" aria-label="Monthly spending">
             <header class="panel-header">
               <h2>Monthly spending</h2>
@@ -250,6 +259,7 @@
             </header>
             <div class="panel-body">
               <p class="bank-status" id="bankStatus"></p>
+              <div class="bank-connections" id="bankConnections"></div>
               <div class="transactions-list" id="transactionsList"></div>
               <div class="empty-state hidden" id="transactionsEmpty">
                 <strong>No transactions yet</strong>
@@ -335,7 +345,11 @@
       </section>
     </div>
 
-    <div class="auth-overlay" id="authOverlay">
+    <!-- Starts hidden: the overlay paints an opaque full-screen panel, so
+         shipping it visible flashed the login card at every already-signed-in
+         user for the length of the /api/auth/me round-trip. main.ts shows it
+         only when that check fails. -->
+    <div class="auth-overlay hidden" id="authOverlay">
       <section class="auth-card">
         <div class="auth-brand">
           <span class="brand-logo" aria-hidden="true">

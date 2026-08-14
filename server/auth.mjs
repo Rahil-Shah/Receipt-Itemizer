@@ -4,8 +4,13 @@
 // Only the SHA-256 hash of the token is persisted, so a database leak does not
 // expose usable sessions. Login is rate-limited in memory to blunt brute force.
 
-import cookieParser from "cookie-parser";
-import { hashPassword, verifyPassword, generateSessionToken, hashToken } from "./crypto.mjs";
+import {
+  hashPassword,
+  verifyPassword,
+  generateSessionToken,
+  hashToken,
+  dummyPasswordHash
+} from "./crypto.mjs";
 
 const SESSION_COOKIE = "rr_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
@@ -16,6 +21,16 @@ const MIN_PASSWORD_LENGTH = 8;
 const MAX_ATTEMPTS = 10;
 const ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
 const loginAttempts = new Map();
+
+// Entries used to be removed only by clearAttempts() on a *successful* login,
+// so every failed attempt against a non-existent account leaked a map entry
+// for the life of the process. Expire them on a timer instead.
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of loginAttempts) {
+    if (now - entry.first > ATTEMPT_WINDOW_MS) loginAttempts.delete(key);
+  }
+}, ATTEMPT_WINDOW_MS).unref();
 
 function tooManyAttempts(key) {
   const now = Date.now();
@@ -37,6 +52,27 @@ function publicUser(user) {
 }
 
 export function createAuth(prisma) {
+  // Built once at startup so login can compare against something real when
+  // there is no account (or no stored hash) to compare against.
+  const dummyHash = dummyPasswordHash();
+
+  // Expired sessions were only ever deleted if that exact token was presented
+  // again after expiry -- which a browser never does, because the cookie's
+  // maxAge matches the session TTL and it drops the cookie first. So the table
+  // grew by one unreachable row per login, forever. Purge on a timer.
+  const purgeExpiredSessions = async () => {
+    try {
+      const { count } = await prisma.session.deleteMany({
+        where: { expiresAt: { lt: new Date() } }
+      });
+      if (count > 0) console.log(`Purged ${count} expired session(s).`);
+    } catch (error) {
+      console.error("Failed to purge expired sessions:", error);
+    }
+  };
+  setInterval(purgeExpiredSessions, 60 * 60 * 1000).unref();
+  void purgeExpiredSessions();
+
   function cookieOptions(req) {
     const secure = req.secure || req.headers["x-forwarded-proto"] === "https";
     return { httpOnly: true, sameSite: "lax", secure, maxAge: SESSION_TTL_MS, path: "/" };
@@ -74,9 +110,10 @@ export function createAuth(prisma) {
     }
   };
 
+  // Registers routes only. The cookie parser requireAuth depends on is mounted
+  // by the server alongside the other global middleware, because requireAuth is
+  // also used to gate middleware that runs before any route.
   function register(app) {
-    app.use(cookieParser());
-
     app.post("/api/auth/register", async (req, res) => {
       const email = String(req.body?.email ?? "").trim().toLowerCase();
       const password = String(req.body?.password ?? "");
@@ -116,9 +153,15 @@ export function createAuth(prisma) {
 
       try {
         const user = await prisma.user.findUnique({ where: { email } });
-        // Always run verify to keep timing uniform whether or not the user exists.
-        const ok = await verifyPassword(password, user?.passwordHash ?? "scrypt$00$00");
-        if (!user || !ok) {
+        // Always run verify to keep timing uniform whether or not the user
+        // exists. The stand-in must be a real hash: the previous placeholder
+        // ("scrypt$00$00") decoded to a single expected byte, so a random
+        // password matched it roughly 1 try in 256 -- which logged an attacker
+        // straight into any account whose passwordHash was NULL.
+        const stored = user?.passwordHash;
+        const ok = await verifyPassword(password, stored ?? (await dummyHash));
+        // An account with no password set cannot be logged into with one.
+        if (!user || !stored || !ok) {
           return res.status(401).json({ error: "Invalid email or password." });
         }
         clearAttempts(throttleKey);
@@ -140,9 +183,14 @@ export function createAuth(prisma) {
     });
 
     app.get("/api/auth/me", requireAuth, async (req, res) => {
-      const user = await prisma.user.findUnique({ where: { id: req.userId } });
-      if (!user) return res.status(401).json({ error: "Authentication required." });
-      res.json(publicUser(user));
+      try {
+        const user = await prisma.user.findUnique({ where: { id: req.userId } });
+        if (!user) return res.status(401).json({ error: "Authentication required." });
+        res.json(publicUser(user));
+      } catch (error) {
+        console.error("Failed to load current user:", error);
+        res.status(500).json({ error: "Could not load your account." });
+      }
     });
   }
 

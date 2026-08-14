@@ -14,6 +14,12 @@ namespace ReceiptRing.UI {
   };
 
   export class SplitWorkspaceView {
+    // Scopes the scroll/resize listeners each render's dropdowns register.
+    // Discarding a row does not fire its `toggle` event, so an open dropdown's
+    // listeners used to outlive the element; aborting per render collects them
+    // deterministically instead of waiting for the next scroll to notice.
+    private panelListeners: AbortController | null = null;
+
     constructor(private readonly currencyFormatService: Services.CurrencyFormatService) {}
 
     renderLines(
@@ -24,6 +30,20 @@ namespace ReceiptRing.UI {
       lineModes: ReadonlyMap<string, Domain.AssignmentMode>,
       handlers: SplitWorkspaceHandlers
     ): void {
+      // Ticking a person or changing the split mode re-renders every row, which
+      // destroyed and recreated the popup the user was working in -- so it shut
+      // after each click and assigning one line to three people meant reopening
+      // it three times. Remember what was open and restore it below.
+      const openLineIds = new Set<string>();
+      container
+        .querySelectorAll<HTMLDetailsElement>("details.assign-dropdown[open]")
+        .forEach((dropdown) => {
+          if (dropdown.dataset.lineId) openLineIds.add(dropdown.dataset.lineId);
+        });
+
+      this.panelListeners?.abort();
+      this.panelListeners = new AbortController();
+
       container.innerHTML = "";
       lines.forEach((line) => {
         const row = document.createElement("div");
@@ -36,7 +56,8 @@ namespace ReceiptRing.UI {
 
         const assignCell = document.createElement("div");
         assignCell.className = "assign-cell";
-        assignCell.append(this.buildAssignDropdown(line, assignments, people, lineModes, handlers));
+        const dropdown = this.buildAssignDropdown(line, assignments, people, lineModes, handlers);
+        assignCell.append(dropdown);
 
         const amount = document.createElement("span");
         amount.className = "amount-cell";
@@ -51,6 +72,12 @@ namespace ReceiptRing.UI {
 
         row.append(name, assignCell, amount, ignore);
         container.append(row);
+
+        // Reopen after insertion so the toggle handler can measure the summary
+        // to position the popup.
+        if (openLineIds.has(line.id)) {
+          dropdown.open = true;
+        }
       });
     }
 
@@ -60,12 +87,14 @@ namespace ReceiptRing.UI {
       people: readonly Domain.SplitPerson[],
       lineModes: ReadonlyMap<string, Domain.AssignmentMode>,
       handlers: SplitWorkspaceHandlers
-    ): HTMLElement {
+    ): HTMLDetailsElement {
       const lineAssignments = assignments.filter((assignment) => assignment.lineId === line.id);
       const mode = lineModes.get(line.id) ?? "equal";
 
       const details = document.createElement("details");
       details.className = "assign-dropdown";
+      // Lets the next render find this row's dropdown and restore its open state.
+      details.dataset.lineId = line.id;
 
       const summary = document.createElement("summary");
       summary.className = "assign-summary";
@@ -89,8 +118,9 @@ namespace ReceiptRing.UI {
         if (details.open) {
           this.closeOtherDropdowns(details);
           this.positionPanel(summary, panel);
-          window.addEventListener("scroll", reposition, true);
-          window.addEventListener("resize", reposition);
+          const signal = this.panelListeners?.signal;
+          window.addEventListener("scroll", reposition, { capture: true, signal });
+          window.addEventListener("resize", reposition, { signal });
         } else {
           this.teardownPanelPositioning(reposition);
           this.resetPanelPosition(panel);
@@ -182,9 +212,9 @@ namespace ReceiptRing.UI {
       });
     }
 
-    renderTotals(container: HTMLElement, totals: readonly Domain.PersonSplitTotal[]): void {
+    renderTotals(container: HTMLElement, summary: Domain.SplitSummary): void {
       container.innerHTML = "";
-      totals.forEach((total) => {
+      summary.totals.forEach((total) => {
         const row = document.createElement("div");
         row.className = "split-total-row";
 
@@ -202,6 +232,25 @@ namespace ReceiptRing.UI {
         row.append(name, items, tax, final);
         container.append(row);
       });
+
+      // Custom amounts and percentages can leave part of a line on nobody's
+      // tab. Say so, rather than letting the shares quietly total less than
+      // the receipt.
+      if (Math.abs(summary.unallocated) >= 0.01) {
+        const row = document.createElement("div");
+        row.className = "split-total-row is-unallocated";
+
+        const name = document.createElement("strong");
+        name.textContent = "Unallocated";
+        const detail = document.createElement("span");
+        detail.textContent = "Not covered by the amounts entered";
+        const spacer = document.createElement("span");
+        const value = document.createElement("b");
+        value.textContent = this.currencyFormatService.format(summary.unallocated);
+
+        row.append(name, detail, spacer, value);
+        container.append(row);
+      }
     }
 
     renderHistory(

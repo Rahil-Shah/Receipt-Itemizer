@@ -73,4 +73,11 @@ namespace ReceiptRing.Domain {
     allocatedTax: number;
     finalTotal: number;
   }
+
+  export interface SplitSummary {
+    totals: PersonSplitTotal[];
+    // Money on assigned lines that custom amounts or percentages left on
+    // nobody's tab. Reported so it can't go missing in silence.
+    unallocated: number;
+  }
 }

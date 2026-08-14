@@ -120,6 +120,8 @@ namespace ReceiptRing.Config {
       keywords: [
         "fuel",
         "gas",
+        // Whole-token matching means "gas" no longer covers this on its own.
+        "gasoline",
         "parking",
         "uber",
         "lyft",

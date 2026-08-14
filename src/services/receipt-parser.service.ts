@@ -1,7 +1,12 @@
 namespace ReceiptRing.Services {
   export class ReceiptParserService {
     private readonly ignoredLabel = /^(total|subtotal|tax|cash|change|visa|mastercard|amex|debit|credit|balance|auth|approval|receipt)\b/i;
-    private readonly amountPattern = /(-?\$?\s*\d{1,4}(?:(?:,\d{3})+)?[,.]\d{2}|-?\$\s*\d{1,5})\s*$/;
+    // The amount must start at a word boundary. Capping the integer part at a
+    // few digits without anchoring the left side let the regex simply start
+    // matching partway into a longer number: "Tv 10999.00" matched "999.00"
+    // and the stray "1" was absorbed into the label, booking a $10,999 TV as
+    // $999. Anchor to start-of-line or whitespace and accept any length.
+    private readonly amountPattern = /(?:^|\s)(-?\$?\s*\d+(?:,\d{3})*[,.]\d{2}|-?\$\s*\d+)\s*$/;
 
     constructor(
       private readonly categorizationService: CategorizationService,

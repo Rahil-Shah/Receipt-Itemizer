@@ -17,6 +17,7 @@ namespace ReceiptRing {
   const categoryPromptView = new UI.CategoryPromptView(categories, elements);
   const splitWorkspaceView = new UI.SplitWorkspaceView(currencyFormatService);
   const budgetRingView = new UI.BudgetRingView(currencyFormatService);
+  const monthlyTrendView = new UI.MonthlyTrendView(currencyFormatService);
   const authView = new UI.AuthView(elements, authApiService);
 
   const controller = new App.AppController(
@@ -35,7 +36,8 @@ namespace ReceiptRing {
     receiptApiService,
     bankApiService,
     spendingAggregatorService,
-    budgetRingView
+    budgetRingView,
+    monthlyTrendView
   );
 
   // Gate the app behind authentication: nothing starts until a session exists.

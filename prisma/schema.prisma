@@ -42,12 +42,18 @@ model Session {
 // (AES-256-GCM: ciphertext + iv + auth tag) and never leaves the server.
 // transactionCursor tracks the position of the last /transactions/sync so each
 // sync only pulls what changed since the previous one.
+//
+// institutionId is Plaid's stable id for the bank itself (unlike itemId, which
+// is minted fresh every time the user goes through Link). It is what lets the
+// exchange endpoint recognise "this is the same bank again" and replace the
+// old connection instead of importing a duplicate copy of every transaction.
 model BankConnection {
   id                String        @id @default(cuid())
   userId            String
   user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   provider          String        @default("plaid")
   institutionName   String?
+  institutionId     String?
   itemId            String?
   encryptedToken    String
   tokenIv           String
@@ -58,6 +64,7 @@ model BankConnection {
   updatedAt         DateTime      @updatedAt
 
   @@index([userId])
+  @@index([userId, institutionId])
   @@map("bank_connections")
 }
 
@@ -114,6 +121,7 @@ model Receipt {
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
+  @@index([userId])
   @@map("receipts")
 }
 
@@ -132,6 +140,7 @@ model ReceiptLine {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
+  @@index([receiptId])
   @@map("receipt_lines")
 }
 
@@ -144,6 +153,7 @@ model Person {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
+  @@index([receiptId])
   @@map("people")
 }
 
@@ -158,5 +168,8 @@ model LineAssignment {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
+  @@unique([lineId, personId])
+  @@index([lineId])
+  @@index([personId])
   @@map("line_assignments")
 }

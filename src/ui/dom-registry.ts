@@ -65,12 +65,14 @@ namespace ReceiptRing.UI {
     authSwitchText: HTMLElement;
     authToggle: HTMLButtonElement;
     logoutButton: HTMLButtonElement;
+    monthlyTrend: HTMLElement;
     budgetMonth: HTMLSelectElement;
     budgetRing: HTMLElement;
     budgetLegend: HTMLElement;
     connectBankButton: HTMLButtonElement;
     refreshTransactionsButton: HTMLButtonElement;
     bankStatus: HTMLElement;
+    bankConnections: HTMLElement;
     transactionsList: HTMLElement;
     transactionsEmpty: HTMLElement;
   }
@@ -145,12 +147,14 @@ namespace ReceiptRing.UI {
         authSwitchText: this.getElement("#authSwitchText", HTMLElement),
         authToggle: this.getElement("#authToggle", HTMLButtonElement),
         logoutButton: this.getElement("#logoutButton", HTMLButtonElement),
+        monthlyTrend: this.getElement("#monthlyTrend", HTMLElement),
         budgetMonth: this.getElement("#budgetMonth", HTMLSelectElement),
         budgetRing: this.getElement("#budgetRing", HTMLElement),
         budgetLegend: this.getElement("#budgetLegend", HTMLElement),
         connectBankButton: this.getElement("#connectBankButton", HTMLButtonElement),
         refreshTransactionsButton: this.getElement("#refreshTransactionsButton", HTMLButtonElement),
         bankStatus: this.getElement("#bankStatus", HTMLElement),
+        bankConnections: this.getElement("#bankConnections", HTMLElement),
         transactionsList: this.getElement("#transactionsList", HTMLElement),
         transactionsEmpty: this.getElement("#transactionsEmpty", HTMLElement)
       };
