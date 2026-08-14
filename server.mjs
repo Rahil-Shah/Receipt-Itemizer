@@ -110,12 +110,12 @@ function serializeReceipt(receipt) {
     tax: toNumber(receipt.tax),
     total: toNumber(receipt.total),
     createdAt: receipt.createdAt,
-    people: receipt.people.map((person) => ({ id: person.id, name: person.name })),
+    people: receipt.people.map((person) => ({ id: person.accountPersonId, name: person.accountPerson.name })),
     lines: receipt.lines.map((line) => ({
       label: line.label,
       amount: toNumber(line.amount),
       assignments: line.assignments.map((assignment) => ({
-        personName: assignment.person?.name ?? "",
+        personName: assignment.person?.accountPerson?.name ?? "",
         mode: assignment.mode,
         value: toNumber(assignment.value)
       }))
@@ -124,7 +124,9 @@ function serializeReceipt(receipt) {
 }
 
 const receiptInclude = {
-  people: true,
+  people: {
+    include: { accountPerson: true }
+  },
   lines: {
     orderBy: { sortOrder: "asc" },
     include: { assignments: { include: { person: true } } }
@@ -237,10 +239,26 @@ app.post("/api/receipts", requireAuth, async (req, res) => {
         }
       });
 
+      // Map clientId to accountPersonId; person.clientId now refers to accountPersonId
       const personByClient = new Map();
+      const seenAccountPersonIds = new Set();
       for (const person of body.people ?? []) {
+        // Prevent duplicate people in a single receipt
+        if (seenAccountPersonIds.has(person.clientId)) {
+          throw new BadRequestError("A person cannot appear twice in the same receipt.");
+        }
+        seenAccountPersonIds.add(person.clientId);
+
+        // Verify the accountPerson exists and belongs to this user
+        const accountPerson = await tx.accountPerson.findUnique({
+          where: { id: person.clientId }
+        });
+        if (!accountPerson || accountPerson.userId !== req.userId) {
+          throw new BadRequestError("Invalid person reference.");
+        }
+        // Create a Person record that references the AccountPerson
         const created = await tx.person.create({
-          data: { receiptId: receipt.id, name: person.name }
+          data: { receiptId: receipt.id, accountPersonId: person.clientId }
         });
         personByClient.set(person.clientId, created.id);
       }
@@ -319,6 +337,108 @@ app.get("/api/receipts", requireAuth, async (req, res) => {
   } catch (error) {
     console.error("Failed to list receipts:", error);
     res.status(500).json({ error: "Failed to load receipts." });
+  }
+});
+
+// GET /api/people - list all account people for the user
+app.get("/api/people", requireAuth, async (req, res) => {
+  try {
+    const people = await prisma.accountPerson.findMany({
+      where: { userId: req.userId },
+      orderBy: { name: "asc" }
+    });
+    res.json(people.map((person) => ({ id: person.id, name: person.name })));
+  } catch (error) {
+    console.error("Failed to list people:", error);
+    res.status(500).json({ error: "Failed to load people." });
+  }
+});
+
+// POST /api/people - add a new person for the user (max 10)
+app.post("/api/people", requireAuth, async (req, res) => {
+  const body = req.body ?? {};
+  const name = (body.name ?? "").trim();
+
+  if (!name || name.length === 0 || name.length > MAX_TEXT_LENGTH) {
+    return res.status(400).json({ error: "Name must be 1-200 characters." });
+  }
+
+  try {
+    // Check current count
+    const count = await prisma.accountPerson.count({
+      where: { userId: req.userId }
+    });
+    if (count >= 10) {
+      return res.status(400).json({ error: "You can only add up to 10 people." });
+    }
+
+    // Create or update (upsert) based on unique constraint
+    const person = await prisma.accountPerson.upsert({
+      where: { userId_name: { userId: req.userId, name } },
+      update: {},
+      create: { userId: req.userId, name }
+    });
+
+    res.status(201).json({ id: person.id, name: person.name });
+  } catch (error) {
+    console.error("Failed to add person:", error);
+    res.status(500).json({ error: "Failed to add person." });
+  }
+});
+
+// DELETE /api/people/:id - delete a person
+app.delete("/api/people/:id", requireAuth, async (req, res) => {
+  try {
+    // Verify the person belongs to the user before deleting
+    const person = await prisma.accountPerson.findUnique({
+      where: { id: req.params.id }
+    });
+
+    if (!person) {
+      return res.status(404).json({ error: "Person not found." });
+    }
+
+    if (person.userId !== req.userId) {
+      return res.status(403).json({ error: "Unauthorized." });
+    }
+
+    // Delete the person (cascades to Person records and their assignments)
+    await prisma.accountPerson.delete({
+      where: { id: req.params.id }
+    });
+
+    res.status(204).end();
+  } catch (error) {
+    console.error("Failed to delete person:", error);
+    res.status(500).json({ error: "Failed to delete person." });
+  }
+});
+
+// GET /api/people/search?q=... - search for people
+app.get("/api/people/search", requireAuth, async (req, res) => {
+  const query = (req.query.q ?? "").trim();
+
+  if (!query || query.length === 0) {
+    return res.json([]);
+  }
+
+  try {
+    const people = await prisma.accountPerson.findMany({
+      where: {
+        userId: req.userId,
+        name: {
+          contains: query,
+          mode: "insensitive"
+        }
+      },
+      orderBy: { name: "asc" },
+      take: 10
+    });
+
+    res.json(people.map((person) => ({ id: person.id, name: person.name })));
+  } catch (error) {
+    console.error("Failed to search people:", error);
+    res.status(500).json({ error: "Failed to search people." });
   }
 });
 

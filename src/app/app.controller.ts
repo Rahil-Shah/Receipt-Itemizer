@@ -35,7 +35,8 @@ namespace ReceiptRing.App {
       private readonly bankApiService: Services.BankApiService,
       private readonly spendingAggregatorService: Services.SpendingAggregatorService,
       private readonly budgetRingView: UI.BudgetRingView,
-      private readonly monthlyTrendView: UI.MonthlyTrendView
+      private readonly monthlyTrendView: UI.MonthlyTrendView,
+      private readonly peopleApiService: Services.PeopleApiService
     ) {
       this.items = this.storageService.load();
     }
@@ -44,6 +45,7 @@ namespace ReceiptRing.App {
       this.bindEvents();
       this.render();
       void this.initGeminiSettings();
+      void this.loadPeople();
     }
 
     private bindEvents(): void {
@@ -478,20 +480,54 @@ namespace ReceiptRing.App {
       void this.extractAndItemizeReceipt(file);
     }
 
+    private async loadPeople(): Promise<void> {
+      try {
+        const people = await this.peopleApiService.list();
+        this.people = people;
+        this.render();
+      } catch (error) {
+        console.error("Failed to load people:", error);
+      }
+    }
+
     private addPerson(): void {
       const name = this.elements.personNameInput.value.trim();
       if (!name) return;
 
-      const person = { id: this.idService.create(), name };
-      this.people = [...this.people, person];
-      this.elements.personNameInput.value = "";
-      this.render();
+      // Prevent adding duplicate people
+      if (this.people.some((p) => p.name.toLowerCase() === name.toLowerCase())) {
+        window.alert("This person is already in the list.");
+        return;
+      }
+
+      this.elements.addPersonButton.setAttribute("disabled", "true");
+      void (async () => {
+        try {
+          const person = await this.peopleApiService.add(name);
+          this.people = [...this.people, person];
+          this.elements.personNameInput.value = "";
+          this.render();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Could not add person.";
+          window.alert(message);
+        } finally {
+          this.elements.addPersonButton.removeAttribute("disabled");
+        }
+      })();
     }
 
     private deletePerson(personId: string): void {
-      this.people = this.people.filter((person) => person.id !== personId);
-      this.assignments = this.assignments.filter((assignment) => assignment.personId !== personId);
-      this.render();
+      void (async () => {
+        try {
+          await this.peopleApiService.delete(personId);
+          this.people = this.people.filter((person) => person.id !== personId);
+          this.assignments = this.assignments.filter((assignment) => assignment.personId !== personId);
+          this.render();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Could not delete person.";
+          window.alert(message);
+        }
+      })();
     }
 
     private toggleIgnoredLine(lineId: string): void {
@@ -572,7 +608,7 @@ namespace ReceiptRing.App {
         subtotal,
         tax,
         total: subtotal + tax,
-        people: this.people.map((person) => ({ clientId: person.id, name: person.name })),
+        people: this.people.map((person) => ({ clientId: person.id })),
         lines: this.receiptLines.map((line) => ({
           clientId: line.id,
           label: line.label,

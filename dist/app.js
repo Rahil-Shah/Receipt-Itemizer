@@ -856,6 +856,50 @@ var ReceiptRing;
 (function (ReceiptRing) {
     var Services;
     (function (Services) {
+        class PeopleApiService {
+            async list() {
+                const response = await fetch("/api/people");
+                if (!response.ok) {
+                    throw new Error(`Could not load people (${response.status}).`);
+                }
+                return (await response.json());
+            }
+            async add(name) {
+                const response = await fetch("/api/people", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ name })
+                });
+                if (!response.ok) {
+                    const message = await response.text();
+                    throw new Error(`Add failed (${response.status}): ${message}`);
+                }
+                return (await response.json());
+            }
+            async delete(id) {
+                const response = await fetch(`/api/people/${encodeURIComponent(id)}`, {
+                    method: "DELETE"
+                });
+                if (!response.ok) {
+                    const message = await response.text();
+                    throw new Error(`Delete failed (${response.status}): ${message}`);
+                }
+            }
+            async search(query) {
+                const response = await fetch(`/api/people/search?q=${encodeURIComponent(query)}`);
+                if (!response.ok) {
+                    throw new Error(`Search failed (${response.status}).`);
+                }
+                return (await response.json());
+            }
+        }
+        Services.PeopleApiService = PeopleApiService;
+    })(Services = ReceiptRing.Services || (ReceiptRing.Services = {}));
+})(ReceiptRing || (ReceiptRing = {}));
+var ReceiptRing;
+(function (ReceiptRing) {
+    var Services;
+    (function (Services) {
         const FALLBACK_COLORS = ["#7cc4ff", "#f0a6ca", "#c3b1e1", "#ffd6a5", "#9ee7c0", "#e8998d"];
         const CATEGORY_ALIASES = {
             dining: "Dining",
@@ -1676,7 +1720,7 @@ var ReceiptRing;
     var App;
     (function (App) {
         class AppController {
-            constructor(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView) {
+            constructor(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView, peopleApiService) {
                 this.elements = elements;
                 this.parserService = parserService;
                 this.categorizationService = categorizationService;
@@ -1694,6 +1738,7 @@ var ReceiptRing;
                 this.spendingAggregatorService = spendingAggregatorService;
                 this.budgetRingView = budgetRingView;
                 this.monthlyTrendView = monthlyTrendView;
+                this.peopleApiService = peopleApiService;
                 this.receiptLines = [];
                 this.people = [];
                 this.assignments = [];
@@ -1714,6 +1759,7 @@ var ReceiptRing;
                 this.bindEvents();
                 this.render();
                 void this.initGeminiSettings();
+                void this.loadPeople();
             }
             bindEvents() {
                 this.elements.sampleButton.addEventListener("click", () => this.loadSample());
@@ -2077,19 +2123,54 @@ var ReceiptRing;
                 this.setOcrStatus(`Loaded ${file.name || "receipt image"}`, 0.02);
                 void this.extractAndItemizeReceipt(file);
             }
+            async loadPeople() {
+                try {
+                    const people = await this.peopleApiService.list();
+                    this.people = people;
+                    this.render();
+                }
+                catch (error) {
+                    console.error("Failed to load people:", error);
+                }
+            }
             addPerson() {
                 const name = this.elements.personNameInput.value.trim();
                 if (!name)
                     return;
-                const person = { id: this.idService.create(), name };
-                this.people = [...this.people, person];
-                this.elements.personNameInput.value = "";
-                this.render();
+                if (this.people.some((p) => p.name.toLowerCase() === name.toLowerCase())) {
+                    window.alert("This person is already in the list.");
+                    return;
+                }
+                this.elements.addPersonButton.setAttribute("disabled", "true");
+                void (async () => {
+                    try {
+                        const person = await this.peopleApiService.add(name);
+                        this.people = [...this.people, person];
+                        this.elements.personNameInput.value = "";
+                        this.render();
+                    }
+                    catch (error) {
+                        const message = error instanceof Error ? error.message : "Could not add person.";
+                        window.alert(message);
+                    }
+                    finally {
+                        this.elements.addPersonButton.removeAttribute("disabled");
+                    }
+                })();
             }
             deletePerson(personId) {
-                this.people = this.people.filter((person) => person.id !== personId);
-                this.assignments = this.assignments.filter((assignment) => assignment.personId !== personId);
-                this.render();
+                void (async () => {
+                    try {
+                        await this.peopleApiService.delete(personId);
+                        this.people = this.people.filter((person) => person.id !== personId);
+                        this.assignments = this.assignments.filter((assignment) => assignment.personId !== personId);
+                        this.render();
+                    }
+                    catch (error) {
+                        const message = error instanceof Error ? error.message : "Could not delete person.";
+                        window.alert(message);
+                    }
+                })();
             }
             toggleIgnoredLine(lineId) {
                 this.receiptLines = this.receiptLines.map((line) => line.id === lineId ? { ...line, ignored: !line.ignored } : line);
@@ -2152,7 +2233,7 @@ var ReceiptRing;
                     subtotal,
                     tax,
                     total: subtotal + tax,
-                    people: this.people.map((person) => ({ clientId: person.id, name: person.name })),
+                    people: this.people.map((person) => ({ clientId: person.id })),
                     lines: this.receiptLines.map((line) => ({
                         clientId: line.id,
                         label: line.label,
@@ -2527,6 +2608,7 @@ var ReceiptRing;
     const receiptApiService = new ReceiptRing.Services.ReceiptApiService();
     const authApiService = new ReceiptRing.Services.AuthApiService();
     const bankApiService = new ReceiptRing.Services.BankApiService();
+    const peopleApiService = new ReceiptRing.Services.PeopleApiService();
     const spendingAggregatorService = new ReceiptRing.Services.SpendingAggregatorService(categories);
     const elements = new ReceiptRing.UI.DomRegistryFactory().create();
     const categoryPromptView = new ReceiptRing.UI.CategoryPromptView(categories, elements);
@@ -2534,7 +2616,7 @@ var ReceiptRing;
     const budgetRingView = new ReceiptRing.UI.BudgetRingView(currencyFormatService);
     const monthlyTrendView = new ReceiptRing.UI.MonthlyTrendView(currencyFormatService);
     const authView = new ReceiptRing.UI.AuthView(elements, authApiService);
-    const controller = new ReceiptRing.App.AppController(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView);
+    const controller = new ReceiptRing.App.AppController(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView, peopleApiService);
     let started = false;
     const startApp = () => {
         if (started)

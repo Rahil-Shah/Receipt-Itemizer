@@ -12,6 +12,7 @@ namespace ReceiptRing {
   const receiptApiService = new Services.ReceiptApiService();
   const authApiService = new Services.AuthApiService();
   const bankApiService = new Services.BankApiService();
+  const peopleApiService = new Services.PeopleApiService();
   const spendingAggregatorService = new Services.SpendingAggregatorService(categories);
   const elements = new UI.DomRegistryFactory().create();
   const categoryPromptView = new UI.CategoryPromptView(categories, elements);
@@ -37,7 +38,8 @@ namespace ReceiptRing {
     bankApiService,
     spendingAggregatorService,
     budgetRingView,
-    monthlyTrendView
+    monthlyTrendView,
+    peopleApiService
   );
 
   // Gate the app behind authentication: nothing starts until a session exists.

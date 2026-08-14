@@ -1,7 +1,6 @@
 namespace ReceiptRing.Services {
   export interface SaveReceiptPerson {
     clientId: string;
-    name: string;
   }
 
   export interface SaveReceiptLine {

@@ -20,6 +20,7 @@ model User {
   receipts        Receipt[]
   sessions        Session[]
   bankConnections BankConnection[]
+  accountPeople   AccountPerson[]
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
@@ -144,16 +145,33 @@ model ReceiptLine {
   @@map("receipt_lines")
 }
 
-model Person {
-  id          String           @id @default(cuid())
-  receiptId   String
-  receipt     Receipt          @relation(fields: [receiptId], references: [id], onDelete: Cascade)
-  name        String
-  assignments LineAssignment[]
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+model AccountPerson {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String   @db.VarChar(200)
+  people    Person[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("account_people")
+}
+
+model Person {
+  id              String           @id @default(cuid())
+  receiptId       String
+  receipt         Receipt          @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  accountPersonId String
+  accountPerson   AccountPerson    @relation(fields: [accountPersonId], references: [id], onDelete: Cascade)
+  assignments     LineAssignment[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@unique([receiptId, accountPersonId])
   @@index([receiptId])
+  @@index([accountPersonId])
   @@map("people")
 }
 
