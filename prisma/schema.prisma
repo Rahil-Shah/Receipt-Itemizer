@@ -21,6 +21,7 @@ model User {
   sessions        Session[]
   bankConnections BankConnection[]
   accountPeople   AccountPerson[]
+  rentEntries     RentEntry[]
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
@@ -86,47 +87,50 @@ model BankAccount {
 }
 
 model BankTransaction {
-  id          String      @id @default(cuid())
-  accountId   String
-  account     BankAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  plaidTxnId  String      @unique
-  date        DateTime
-  description String?
-  amount      Decimal     @db.Decimal(10, 2)
-  category    String?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id               String      @id @default(cuid())
+  accountId        String
+  account          BankAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  plaidTxnId       String      @unique
+  date             DateTime
+  description      String?
+  amount           Decimal     @db.Decimal(10, 2)
+  category         String?
+  linkedReceiptId  String?     @unique
+  linkedReceipt    Receipt?    @relation(fields: [linkedReceiptId], references: [id], onDelete: SetNull)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
 
   @@index([accountId])
   @@map("bank_transactions")
 }
 
 model Receipt {
-  id            String       @id @default(cuid())
-  userId        String?
-  user          User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
-  storeName     String?
-  receiptDate   DateTime?
-  receiptNumber String?
-  category      String      @default("Other")
-  subtotal      Decimal?    @db.Decimal(10, 2)
-  tax           Decimal?    @db.Decimal(10, 2)
-  total         Decimal?    @db.Decimal(10, 2)
-  ocrProvider   String?
-  ocrConfidence Decimal?    @db.Decimal(5, 2)
-  rawOcrText    String?
-  ocrDocument   Json?
-  imageUrl      String?
+  id                    String           @id @default(cuid())
+  userId                String?
+  user                  User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  storeName             String?
+  receiptDate           DateTime?
+  receiptNumber         String?
+  category              String           @default("Other")
+  subtotal              Decimal?         @db.Decimal(10, 2)
+  tax                   Decimal?         @db.Decimal(10, 2)
+  total                 Decimal?         @db.Decimal(10, 2)
+  ocrProvider           String?
+  ocrConfidence         Decimal?         @db.Decimal(5, 2)
+  rawOcrText            String?
+  ocrDocument           Json?
+  imageUrl              String?
   // The receipt photo itself, kept with the row so it lives and dies with the
   // receipt (no separate upload directory to back up or clean). Base64 without
   // the data: prefix; imageMimeType doubles as the "has an image" flag, so
   // queries can omit the heavy column and still know a photo exists.
-  imageData     String?
-  imageMimeType String?
-  lines         ReceiptLine[]
-  people        Person[]
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  imageData             String?
+  imageMimeType         String?
+  lines                 ReceiptLine[]
+  people                Person[]
+  linkedTransaction     BankTransaction?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
 
   @@index([userId])
   @@map("receipts")
@@ -140,6 +144,7 @@ model ReceiptLine {
   amount      Decimal          @db.Decimal(10, 2)
   confidence  Decimal?         @db.Decimal(5, 2)
   ignored     Boolean          @default(false)
+  isFood      Boolean          @default(false)
   ocrLineId   String?
   boundingBox Json?
   sortOrder   Int              @default(0)
@@ -148,6 +153,7 @@ model ReceiptLine {
   updatedAt   DateTime         @updatedAt
 
   @@index([receiptId])
+  @@index([receiptId, isFood])
   @@map("receipt_lines")
 }
 
@@ -196,4 +202,23 @@ model LineAssignment {
   @@index([lineId])
   @@index([personId])
   @@map("line_assignments")
+}
+
+model RentEntry {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  year          Int
+  month         Int
+  amount        Decimal   @db.Decimal(10, 2)
+  propertyName  String?
+  date          DateTime
+  photoData     String?
+  photoMimeType String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([userId, year, month])
+  @@index([userId, year, month])
+  @@map("rent_entries")
 }
