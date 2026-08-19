@@ -39,8 +39,10 @@ namespace ReceiptRing.Services {
   }
 
   export interface SavedReceiptLineSummary {
+    id: string;
     label: string;
     amount: number;
+    isFood?: boolean;
     assignments: SavedReceiptLineAssignment[];
   }
 

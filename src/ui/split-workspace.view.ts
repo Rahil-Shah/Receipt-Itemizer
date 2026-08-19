@@ -5,6 +5,7 @@ namespace ReceiptRing.UI {
     onAssignToggle(lineId: string, personId: string): void;
     onLineModeChange(lineId: string, mode: Domain.AssignmentMode): void;
     onAssignValueChange(lineId: string, personId: string, value: number): void;
+    onLineFood(lineId: string, isFood: boolean): void;
   }
 
   const MODE_LABELS: Record<Domain.AssignmentMode, string> = {
@@ -57,6 +58,14 @@ namespace ReceiptRing.UI {
         name.className = "line-label";
         name.textContent = line.label;
 
+        const foodCheck = document.createElement("button");
+        foodCheck.className = "line-food-check";
+        foodCheck.type = "button";
+        foodCheck.setAttribute("aria-label", line.isFood ? "Mark as non-food" : "Mark as food");
+        foodCheck.setAttribute("aria-pressed", String(line.isFood ?? false));
+        foodCheck.innerHTML = this.getFoodCheckIcon(line.isFood ?? false);
+        foodCheck.addEventListener("click", () => handlers.onLineFood(line.id, !(line.isFood ?? false)));
+
         const assignCell = document.createElement("div");
         assignCell.className = "assign-cell";
         const dropdown = this.buildAssignDropdown(line, assignments, people, lineModes, handlers);
@@ -73,7 +82,7 @@ namespace ReceiptRing.UI {
         ignore.setAttribute("aria-label", line.ignored ? "Restore line" : "Ignore line");
         ignore.addEventListener("click", () => handlers.onLineIgnore(line.id));
 
-        row.append(name, assignCell, amount, ignore);
+        row.append(name, foodCheck, assignCell, amount, ignore);
         container.append(row);
 
         // Reopen after insertion so the toggle handler can measure the summary
@@ -259,7 +268,8 @@ namespace ReceiptRing.UI {
     renderHistory(
       container: HTMLElement,
       receipts: readonly Services.SavedReceiptSummary[],
-      onDelete?: (receipt: Services.SavedReceiptSummary) => void
+      onDelete?: (receipt: Services.SavedReceiptSummary) => void,
+      onLineFood?: (receiptId: string, lineId: string, isFood: boolean) => void
     ): void {
       container.innerHTML = "";
       receipts.forEach((receipt) => {
@@ -321,12 +331,25 @@ namespace ReceiptRing.UI {
             // the server; render as text, never HTML, to prevent stored XSS.
             const label = document.createElement("span");
             label.textContent = line.label;
+
+            const foodCheck = document.createElement("button");
+            foodCheck.className = "line-food-check";
+            foodCheck.type = "button";
+            foodCheck.setAttribute("aria-label", line.isFood ? "Mark as non-food" : "Mark as food");
+            foodCheck.setAttribute("aria-pressed", String(line.isFood ?? false));
+            foodCheck.innerHTML = this.getFoodCheckIcon(line.isFood ?? false);
+            if (onLineFood) {
+              foodCheck.addEventListener("click", () => onLineFood(receipt.id, line.id, !(line.isFood ?? false)));
+            } else {
+              foodCheck.disabled = true;
+            }
+
             const peopleSpan = document.createElement("span");
             peopleSpan.className = "history-line-people";
             peopleSpan.textContent = names.length ? names.join(", ") : "Unassigned";
             const amountEl = document.createElement("b");
             amountEl.textContent = this.currencyFormatService.format(Number(line.amount));
-            lineRow.append(label, peopleSpan, amountEl);
+            lineRow.append(label, foodCheck, peopleSpan, amountEl);
             linesWrap.append(lineRow);
           });
           body.append(linesWrap);
@@ -423,6 +446,15 @@ namespace ReceiptRing.UI {
         .filter((name): name is string => Boolean(name));
 
       return names.length > 0 ? names.join(", ") : "Assign ▾";
+    }
+
+    private getFoodCheckIcon(isFood: boolean): string {
+      // Filled circle for checked, outline for unchecked
+      const strokeWidth = isFood ? "0" : "1.6";
+      const fill = isFood ? "currentColor" : "none";
+      return `<svg viewBox="0 0 24 24" fill="${fill}" xmlns="http://www.w3.org/2000/svg" class="food-check-icon">
+        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="${strokeWidth}"/>
+      </svg>`;
     }
   }
 }

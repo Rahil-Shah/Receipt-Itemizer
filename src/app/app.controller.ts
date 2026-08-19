@@ -7,6 +7,7 @@ namespace ReceiptRing.App {
     private people: Domain.SplitPerson[] = [];
     private assignments: Domain.LineAssignment[] = [];
     private lineModes = new Map<string, Domain.AssignmentMode>();
+    private foodFlags = new Map<string, boolean>();
     private receiptCategory: Domain.ReceiptCategory = "Groceries";
     private cameraStream: MediaStream | null = null;
     private isPromptingForCategories = false;
@@ -21,6 +22,10 @@ namespace ReceiptRing.App {
     // promise is what's held here: a save that lands first waits for it instead
     // of storing the receipt without its image.
     private receiptImage: Promise<string | null> | null = null;
+    private rentEntries: Domain.RentEntry[] = [];
+    private editingRentEntryId: string | null = null;
+    private linkedReceipts: Map<string, string> = new Map();
+    private linkingTransactionId: string | null = null;
 
     constructor(
       private readonly elements: UI.DomRegistry,
@@ -41,7 +46,9 @@ namespace ReceiptRing.App {
       private readonly spendingAggregatorService: Services.SpendingAggregatorService,
       private readonly budgetRingView: UI.BudgetRingView,
       private readonly monthlyTrendView: UI.MonthlyTrendView,
-      private readonly peopleApiService: Services.PeopleApiService
+      private readonly peopleApiService: Services.PeopleApiService,
+      private readonly rentEntryApiService: Services.RentEntryApiService,
+      private readonly rentEntriesView: UI.RentEntriesView
     ) {
       this.items = this.storageService.load();
     }
@@ -85,6 +92,31 @@ namespace ReceiptRing.App {
       this.elements.refreshTransactionsButton.addEventListener("click", () => void this.refreshTransactions());
       this.elements.budgetMonth.addEventListener("change", () => {
         this.selectMonth(this.elements.budgetMonth.value || null);
+      });
+
+      this.elements.addRentEntryButton.addEventListener("click", () => this.openRentEntryForm());
+      this.elements.rentEntryCancelButton.addEventListener("click", () => this.closeRentEntryModal());
+      this.elements.rentEntrySaveButton.addEventListener("click", () => void this.saveRentEntry());
+      this.elements.rentEntriesList.addEventListener("click", (event) => {
+        const target = event.target as HTMLElement;
+        if (target.textContent === "Edit") {
+          const entryId = target.dataset.entryId;
+          const entry = this.rentEntries.find((e) => e.id === entryId);
+          if (entry) this.openRentEntryForm(entry);
+        } else if (target.textContent === "Delete") {
+          const entryId = target.dataset.entryId;
+          const entry = this.rentEntries.find((e) => e.id === entryId);
+          if (entry) void this.deleteRentEntry(entry);
+        }
+      });
+
+      this.elements.receiptLinkCancelButton.addEventListener("click", () => this.closeReceiptLinkModal());
+      this.elements.receiptLinkList.addEventListener("click", (event) => {
+        const target = event.target as HTMLElement;
+        const button = target.closest(".receipt-link-item");
+        if (button instanceof HTMLElement && button.dataset.receiptId) {
+          void this.selectReceiptForLink(button.dataset.receiptId);
+        }
       });
 
       this.elements.tabButtons.forEach((button) => {
@@ -173,6 +205,7 @@ namespace ReceiptRing.App {
       }));
       this.assignments = [];
       this.lineModes.clear();
+      this.foodFlags.clear();
     }
 
     private itemizeReceiptText(): void {
@@ -206,7 +239,8 @@ namespace ReceiptRing.App {
         onPersonDelete: (personId) => this.deletePerson(personId),
         onAssignToggle: (lineId, personId) => this.toggleAssignment(lineId, personId),
         onLineModeChange: (lineId, mode) => this.setLineMode(lineId, mode),
-        onAssignValueChange: (lineId, personId, value) => this.setAssignmentValue(lineId, personId, value)
+        onAssignValueChange: (lineId, personId, value) => this.setAssignmentValue(lineId, personId, value),
+        onLineFood: (lineId, isFood) => this.toggleLineFood(lineId, isFood)
       };
 
       this.splitWorkspaceView.renderLines(
@@ -577,6 +611,24 @@ namespace ReceiptRing.App {
       this.renderTotals();
     }
 
+    private toggleLineFood(lineId: string, isFood: boolean): void {
+      this.foodFlags.set(lineId, isFood);
+      this.receiptLines = this.receiptLines.map((line) =>
+        line.id === lineId ? { ...line, isFood } : line
+      );
+      this.render();
+    }
+
+    private async updateLineFood(receiptId: string, lineId: string, isFood: boolean): Promise<void> {
+      try {
+        await this.receiptApiService.updateLineFood(receiptId, lineId, isFood);
+        await this.loadHistory();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not update line.";
+        window.alert(`Failed to update food flag. ${message}`);
+      }
+    }
+
     private getSubtotal(): number {
       return this.receiptLines.filter((line) => !line.ignored).reduce((sum, line) => sum + line.amount, 0);
     }
@@ -617,7 +669,8 @@ namespace ReceiptRing.App {
           clientId: line.id,
           label: line.label,
           amount: line.amount,
-          ignored: line.ignored
+          ignored: line.ignored,
+          isFood: this.foodFlags.get(line.id) ?? false
         })),
         assignments: this.assignments.map((assignment) => ({
           lineClientId: assignment.lineId,
@@ -643,8 +696,11 @@ namespace ReceiptRing.App {
       try {
         const receipts = await this.receiptApiService.list();
         this.elements.historyEmpty.classList.toggle("hidden", receipts.length > 0);
-        this.splitWorkspaceView.renderHistory(this.elements.historyList, receipts, (receipt) =>
-          void this.deleteReceipt(receipt)
+        this.splitWorkspaceView.renderHistory(
+          this.elements.historyList,
+          receipts,
+          (receipt) => void this.deleteReceipt(receipt),
+          (receiptId, lineId, isFood) => void this.updateLineFood(receiptId, lineId, isFood)
         );
       } catch (error) {
         this.elements.historyEmpty.classList.remove("hidden");
@@ -794,6 +850,7 @@ namespace ReceiptRing.App {
       this.monthlySpend = this.spendingAggregatorService.aggregate(receipts, this.bankTransactions);
       this.populateMonths();
       this.renderConnections();
+      this.renderRentEntries();
       this.renderTransactions();
       this.renderTrend();
       this.renderRing();
@@ -898,6 +955,7 @@ namespace ReceiptRing.App {
       this.elements.budgetMonth.value = month ?? "";
       this.renderTrend();
       this.renderRing();
+      this.renderRentEntries();
       this.renderTransactions();
     }
 
@@ -937,6 +995,8 @@ namespace ReceiptRing.App {
       for (const txn of transactions.slice(0, 100)) {
         const row = document.createElement("div");
         row.className = "transaction-row";
+        row.dataset.transactionId = txn.id;
+        row.style.cursor = "pointer";
 
         const main = document.createElement("div");
         main.className = "transaction-main";
@@ -949,9 +1009,41 @@ namespace ReceiptRing.App {
         meta.textContent = txn.category ? `${date} · ${txn.category}` : date;
         main.append(desc, meta);
 
+        const linkedReceiptId = this.linkedReceipts.get(txn.id);
+        if (linkedReceiptId) {
+          const linkIcon = document.createElement("span");
+          linkIcon.className = "transaction-link-icon";
+          linkIcon.setAttribute("aria-label", "Receipt linked");
+          linkIcon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M13.5 3.5a4 4 0 0 1 4 4v3h2a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2h2v-3a4 4 0 0 1 4-4Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M10.5 11h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>`;
+          main.append(linkIcon);
+        }
+
         const amount = document.createElement("span");
         amount.className = "transaction-amount";
         amount.textContent = this.currencyFormatService.format(txn.amount);
+
+        // Setup drag-over and drop handlers for receipt linking
+        row.addEventListener("dragover", (event) => {
+          event.preventDefault();
+          row.classList.add("is-drag-over");
+        });
+        row.addEventListener("dragleave", () => {
+          row.classList.remove("is-drag-over");
+        });
+        row.addEventListener("drop", (event) => {
+          event.preventDefault();
+          row.classList.remove("is-drag-over");
+          const receiptId = event.dataTransfer?.getData("text/plain");
+          if (receiptId) {
+            void this.linkReceiptToTransaction(receiptId, txn.id);
+          }
+        });
+
+        // Click to open receipt link modal
+        row.addEventListener("click", () => this.openReceiptLinkModal(txn.id));
 
         row.append(main, amount);
         list.append(row);
@@ -1034,6 +1126,213 @@ namespace ReceiptRing.App {
       this.items = this.items.map((candidate) =>
         candidate.id === id ? { ...candidate, needsCategoryReview: false } : candidate
       );
+    }
+
+    private renderRentEntries(): void {
+      void (async () => {
+        try {
+          if (!this.selectedMonth) {
+            this.rentEntriesView.render(this.elements.rentEntriesList, []);
+            return;
+          }
+
+          this.rentEntries = await this.rentEntryApiService.list(this.selectedMonth);
+          this.rentEntriesView.render(this.elements.rentEntriesList, this.rentEntries);
+        } catch (error) {
+          console.error("Failed to load rent entries:", error);
+          this.rentEntriesView.render(this.elements.rentEntriesList, []);
+        }
+      })();
+    }
+
+    private openRentEntryForm(entry?: Domain.RentEntry): void {
+      this.editingRentEntryId = entry?.id ?? null;
+      this.rentEntriesView.renderForm(this.elements.rentEntryModal, entry);
+      this.elements.rentEntryModal.classList.remove("hidden");
+    }
+
+    private closeRentEntryModal(): void {
+      this.editingRentEntryId = null;
+      this.elements.rentEntryModal.classList.add("hidden");
+    }
+
+    private async saveRentEntry(): Promise<void> {
+      const date = this.elements.rentEntryDate.value.trim();
+      const amount = Number(this.elements.rentEntryAmount.value);
+      const propertyName = this.elements.rentEntryProperty.value.trim();
+      const photoFile = this.elements.rentEntryPhoto.files?.[0];
+
+      if (!date || !amount || amount <= 0) {
+        window.alert("Please fill in the date and amount.");
+        return;
+      }
+
+      this.elements.rentEntrySaveButton.setAttribute("disabled", "true");
+
+      try {
+        // Parse the date to extract year and month
+        const dateObj = new Date(date);
+        const year = dateObj.getFullYear();
+        const month = dateObj.getMonth() + 1;
+
+        let photoDataUrl: string | undefined;
+        if (photoFile) {
+          photoDataUrl = await this.fileToDataUrl(photoFile);
+        }
+
+        const payload: Services.CreateRentEntryPayload = {
+          year,
+          month,
+          amount,
+          propertyName: propertyName || undefined,
+          date,
+          photoDataUrl
+        };
+
+        if (this.editingRentEntryId) {
+          await this.rentEntryApiService.update(this.editingRentEntryId, {
+            amount,
+            propertyName: propertyName || undefined,
+            date,
+            photoUrl: photoDataUrl
+          });
+        } else {
+          await this.rentEntryApiService.create(payload);
+        }
+
+        window.alert(this.editingRentEntryId ? "Rent entry updated." : "Rent entry saved.");
+        this.closeRentEntryModal();
+        void this.renderRentEntries();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not save rent entry.";
+        if (message.includes("already exists")) {
+          window.alert("A rent entry already exists for this month. Please edit the existing entry.");
+        } else {
+          window.alert(message);
+        }
+      } finally {
+        this.elements.rentEntrySaveButton.removeAttribute("disabled");
+      }
+    }
+
+    private async deleteRentEntry(entry: Domain.RentEntry): Promise<void> {
+      const label = this.formatTransactionDate(entry.date);
+      if (!window.confirm(`Delete rent entry for ${label}? This can't be undone.`)) {
+        return;
+      }
+
+      try {
+        await this.rentEntryApiService.delete(entry.id);
+        window.alert("Rent entry deleted.");
+        void this.renderRentEntries();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not delete rent entry.";
+        window.alert(`Failed to delete rent entry. ${message}`);
+      }
+    }
+
+    private fileToDataUrl(file: File): Promise<string> {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          resolve(reader.result as string);
+        };
+        reader.onerror = () => {
+          reject(new Error("Could not read file."));
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    private openReceiptLinkModal(transactionId: string): void {
+      this.linkingTransactionId = transactionId;
+      this.renderReceiptLinkList();
+      this.elements.receiptLinkModal.classList.remove("hidden");
+    }
+
+    private closeReceiptLinkModal(): void {
+      this.linkingTransactionId = null;
+      this.elements.receiptLinkModal.classList.add("hidden");
+    }
+
+    private renderReceiptLinkList(): void {
+      const list = this.elements.receiptLinkList;
+      list.replaceChildren();
+
+      void (async () => {
+        try {
+          const receipts = await this.receiptApiService.list();
+          if (receipts.length === 0) {
+            const empty = document.querySelector("#receiptLinkEmpty");
+            if (empty instanceof HTMLElement) {
+              empty.classList.remove("hidden");
+            }
+            return;
+          }
+
+          receipts.forEach((receipt) => {
+            const card = document.createElement("button");
+            card.className = "receipt-link-item";
+            card.type = "button";
+            card.dataset.receiptId = receipt.id;
+
+            const main = document.createElement("div");
+            main.className = "receipt-link-main";
+
+            const storeName = document.createElement("strong");
+            storeName.textContent = receipt.storeName || "Untitled receipt";
+
+            const meta = document.createElement("span");
+            meta.className = "receipt-link-meta";
+            const when = new Date(receipt.createdAt).toLocaleDateString();
+            meta.textContent = `${receipt.category} · ${when}`;
+
+            const amount = document.createElement("span");
+            amount.className = "receipt-link-amount";
+            amount.textContent = this.currencyFormatService.format(Number(receipt.total ?? 0));
+
+            main.append(storeName, meta, amount);
+            card.append(main);
+
+            if (receipt.hasImage) {
+              const thumb = document.createElement("img");
+              thumb.className = "receipt-link-thumb";
+              thumb.src = this.receiptApiService.imageUrl(receipt.id);
+              thumb.alt = `Receipt from ${receipt.storeName || "an unknown store"}`;
+              card.append(thumb);
+            }
+
+            list.append(card);
+          });
+        } catch (error) {
+          const msg = document.createElement("p");
+          msg.textContent = "Could not load receipts.";
+          list.append(msg);
+        }
+      })();
+    }
+
+    private async selectReceiptForLink(receiptId: string): Promise<void> {
+      if (!this.linkingTransactionId) return;
+
+      try {
+        await this.linkReceiptToTransaction(receiptId, this.linkingTransactionId);
+        this.closeReceiptLinkModal();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not link receipt.";
+        window.alert(`Failed to link receipt. ${message}`);
+      }
+    }
+
+    private async linkReceiptToTransaction(receiptId: string, transactionId: string): Promise<void> {
+      try {
+        await this.receiptApiService.linkTransactionToReceipt(receiptId, transactionId);
+        this.linkedReceipts.set(transactionId, receiptId);
+        this.renderTransactions();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not link receipt to transaction.";
+        throw new Error(message);
+      }
     }
 
   }

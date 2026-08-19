@@ -15,11 +15,13 @@ namespace ReceiptRing {
   const bankApiService = new Services.BankApiService();
   const peopleApiService = new Services.PeopleApiService();
   const spendingAggregatorService = new Services.SpendingAggregatorService(categories);
+  const rentEntryApiService = new Services.RentEntryApiService();
   const elements = new UI.DomRegistryFactory().create();
   const categoryPromptView = new UI.CategoryPromptView(categories, elements);
   const splitWorkspaceView = new UI.SplitWorkspaceView(currencyFormatService, receiptApiService);
   const budgetRingView = new UI.BudgetRingView(currencyFormatService);
   const monthlyTrendView = new UI.MonthlyTrendView(currencyFormatService);
+  const rentEntriesView = new UI.RentEntriesView(currencyFormatService);
   const authView = new UI.AuthView(elements, authApiService);
 
   const controller = new App.AppController(
@@ -41,7 +43,9 @@ namespace ReceiptRing {
     spendingAggregatorService,
     budgetRingView,
     monthlyTrendView,
-    peopleApiService
+    peopleApiService,
+    rentEntryApiService,
+    rentEntriesView
   );
 
   // Gate the app behind authentication: nothing starts until a session exists.

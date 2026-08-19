@@ -439,6 +439,13 @@ input[type="number"] {
   font-variant-numeric: tabular-nums;
 }
 
+.field-note {
+  margin: 6px 0 0;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
 .button-row {
   display: flex;
   flex-wrap: wrap;
@@ -1272,7 +1279,8 @@ input[type="number"] {
   margin-top: 20px;
 }
 
-.settings-form {
+.settings-form,
+.rent-form {
   display: grid;
 }
 
@@ -1751,5 +1759,94 @@ input[type="number"] {
 .transaction-amount {
   font-family: var(--font-mono);
   color: var(--ink);
+  white-space: nowrap;
+}
+
+/* --- Rent entries --------------------------------------------------------- */
+.rent-entries-list {
+  display: grid;
+  gap: 2px;
+}
+
+.rent-entries-list .empty-state {
+  padding: 32px 12px;
+}
+
+.rent-entry-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--border);
+  transition: background 100ms ease;
+}
+
+.rent-entry-row:hover {
+  background: var(--surface-2);
+}
+
+.rent-entry-row:last-child {
+  border-bottom: none;
+}
+
+.rent-entry-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.rent-entry-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.rent-entry-date {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.rent-entry-property {
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.95rem;
+}
+
+.rent-entry-meta {
+  font-size: 0.85rem;
+  color: var(--ink-3);
+}
+
+.rent-entry-photo-indicator {
+  display: inline-block;
+  min-width: 14px;
+  text-align: center;
+  font-size: 0.9rem;
+  opacity: 0.6;
+  transition: opacity 120ms ease;
+}
+
+.rent-entry-amount {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+  min-width: 80px;
+  text-align: right;
+}
+
+.rent-entry-actions {
+  display: flex;
+  gap: 6px;
   white-space: nowrap;
 }

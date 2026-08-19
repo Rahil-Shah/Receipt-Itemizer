@@ -794,6 +794,47 @@ var ReceiptRing;
                     throw new Error(`Delete failed (${response.status}): ${message}`);
                 }
             }
+            async updateLineFood(receiptId, lineId, isFood) {
+                const response = await fetch(`/api/receipts/${encodeURIComponent(receiptId)}/lines/${encodeURIComponent(lineId)}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ isFood })
+                });
+                if (!response.ok) {
+                    const message = await response.text();
+                    throw new Error(`Update failed (${response.status}): ${message}`);
+                }
+            }
+            async getFoodSummary(month) {
+                const url = month
+                    ? `/api/receipts/food-summary?month=${encodeURIComponent(month)}`
+                    : "/api/receipts/food-summary";
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`Could not load food summary (${response.status}).`);
+                }
+                return (await response.json());
+            }
+            async linkTransactionToReceipt(receiptId, bankTransactionId) {
+                const response = await fetch(`/api/receipts/${encodeURIComponent(receiptId)}/link-transaction`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ bankTransactionId })
+                });
+                if (!response.ok) {
+                    const message = await response.text();
+                    throw new Error(`Link failed (${response.status}): ${message}`);
+                }
+            }
+            async unlinkTransactionFromReceipt(receiptId) {
+                const response = await fetch(`/api/receipts/${encodeURIComponent(receiptId)}/link-transaction`, {
+                    method: "DELETE"
+                });
+                if (!response.ok) {
+                    const message = await response.text();
+                    throw new Error(`Unlink failed (${response.status}): ${message}`);
+                }
+            }
         }
         Services.ReceiptApiService = ReceiptApiService;
     })(Services = ReceiptRing.Services || (ReceiptRing.Services = {}));
@@ -1131,7 +1172,27 @@ var ReceiptRing;
                     bankStatus: this.getElement("#bankStatus", HTMLElement),
                     bankConnections: this.getElement("#bankConnections", HTMLElement),
                     transactionsList: this.getElement("#transactionsList", HTMLElement),
-                    transactionsEmpty: this.getElement("#transactionsEmpty", HTMLElement)
+                    transactionsEmpty: this.getElement("#transactionsEmpty", HTMLElement),
+                    addRentEntryButton: this.getElement("#addRentEntryButton", HTMLButtonElement),
+                    rentEntriesList: this.getElement("#rentEntriesList", HTMLElement),
+                    rentEntryModal: this.getElement("#rentEntryModal", HTMLElement),
+                    rentEntryDate: this.getElement("#rentEntryDate", HTMLInputElement),
+                    rentEntryAmount: this.getElement("#rentEntryAmount", HTMLInputElement),
+                    rentEntryProperty: this.getElement("#rentEntryProperty", HTMLInputElement),
+                    rentEntryPhoto: this.getElement("#rentEntryPhoto", HTMLInputElement),
+                    rentEntryCancelButton: this.getElement("#rentEntryCancelButton", HTMLButtonElement),
+                    rentEntrySaveButton: this.getElement("#rentEntrySaveButton", HTMLButtonElement),
+                    receiptLinkModal: this.getElement("#receiptLinkModal", HTMLElement),
+                    receiptLinkList: this.getElement("#receiptLinkList", HTMLElement),
+                    receiptLinkCancelButton: this.getElement("#receiptLinkCancelButton", HTMLButtonElement),
+                    educationFoodTotal: this.getElement("#educationFoodTotal", HTMLElement),
+                    educationRentTotal: this.getElement("#educationRentTotal", HTMLElement),
+                    educationExpensesTotal: this.getElement("#educationExpensesTotal", HTMLElement),
+                    foodSection: this.getElement("#foodSection", HTMLElement),
+                    foodItemsList: this.getElement("#foodItemsList", HTMLElement),
+                    foodEmpty: this.getElement("#foodEmpty", HTMLElement),
+                    rentSection: this.getElement("#rentSection", HTMLElement),
+                    rentEmpty: this.getElement("#rentEmpty", HTMLElement)
                 };
             }
             getElement(selector, constructorReference) {
@@ -1421,6 +1482,13 @@ var ReceiptRing;
                     const name = document.createElement("span");
                     name.className = "line-label";
                     name.textContent = line.label;
+                    const foodCheck = document.createElement("button");
+                    foodCheck.className = "line-food-check";
+                    foodCheck.type = "button";
+                    foodCheck.setAttribute("aria-label", line.isFood ? "Mark as non-food" : "Mark as food");
+                    foodCheck.setAttribute("aria-pressed", String(line.isFood ?? false));
+                    foodCheck.innerHTML = this.getFoodCheckIcon(line.isFood ?? false);
+                    foodCheck.addEventListener("click", () => handlers.onLineFood(line.id, !(line.isFood ?? false)));
                     const assignCell = document.createElement("div");
                     assignCell.className = "assign-cell";
                     const dropdown = this.buildAssignDropdown(line, assignments, people, lineModes, handlers);
@@ -1434,7 +1502,7 @@ var ReceiptRing;
                     ignore.textContent = line.ignored ? "+" : "x";
                     ignore.setAttribute("aria-label", line.ignored ? "Restore line" : "Ignore line");
                     ignore.addEventListener("click", () => handlers.onLineIgnore(line.id));
-                    row.append(name, assignCell, amount, ignore);
+                    row.append(name, foodCheck, assignCell, amount, ignore);
                     container.append(row);
                     if (openLineIds.has(line.id)) {
                         dropdown.open = true;
@@ -1567,7 +1635,7 @@ var ReceiptRing;
                     container.append(row);
                 }
             }
-            renderHistory(container, receipts, onDelete) {
+            renderHistory(container, receipts, onDelete, onLineFood) {
                 container.innerHTML = "";
                 receipts.forEach((receipt) => {
                     const card = document.createElement("details");
@@ -1615,12 +1683,24 @@ var ReceiptRing;
                                 .filter((value) => Boolean(value));
                             const label = document.createElement("span");
                             label.textContent = line.label;
+                            const foodCheck = document.createElement("button");
+                            foodCheck.className = "line-food-check";
+                            foodCheck.type = "button";
+                            foodCheck.setAttribute("aria-label", line.isFood ? "Mark as non-food" : "Mark as food");
+                            foodCheck.setAttribute("aria-pressed", String(line.isFood ?? false));
+                            foodCheck.innerHTML = this.getFoodCheckIcon(line.isFood ?? false);
+                            if (onLineFood) {
+                                foodCheck.addEventListener("click", () => onLineFood(receipt.id, line.id, !(line.isFood ?? false)));
+                            }
+                            else {
+                                foodCheck.disabled = true;
+                            }
                             const peopleSpan = document.createElement("span");
                             peopleSpan.className = "history-line-people";
                             peopleSpan.textContent = names.length ? names.join(", ") : "Unassigned";
                             const amountEl = document.createElement("b");
                             amountEl.textContent = this.currencyFormatService.format(Number(line.amount));
-                            lineRow.append(label, peopleSpan, amountEl);
+                            lineRow.append(label, foodCheck, peopleSpan, amountEl);
                             linesWrap.append(lineRow);
                         });
                         body.append(linesWrap);
@@ -1698,6 +1778,13 @@ var ReceiptRing;
                     .map((assignment) => people.find((person) => person.id === assignment.personId)?.name)
                     .filter((name) => Boolean(name));
                 return names.length > 0 ? names.join(", ") : "Assign ▾";
+            }
+            getFoodCheckIcon(isFood) {
+                const strokeWidth = isFood ? "0" : "1.6";
+                const fill = isFood ? "currentColor" : "none";
+                return `<svg viewBox="0 0 24 24" fill="${fill}" xmlns="http://www.w3.org/2000/svg" class="food-check-icon">
+        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="${strokeWidth}"/>
+      </svg>`;
             }
         }
         UI.SplitWorkspaceView = SplitWorkspaceView;
@@ -1793,7 +1880,7 @@ var ReceiptRing;
     var App;
     (function (App) {
         class AppController {
-            constructor(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, receiptImageService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView, peopleApiService) {
+            constructor(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, receiptImageService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView, peopleApiService, rentEntryApiService, rentEntriesView) {
                 this.elements = elements;
                 this.parserService = parserService;
                 this.categorizationService = categorizationService;
@@ -1813,10 +1900,13 @@ var ReceiptRing;
                 this.budgetRingView = budgetRingView;
                 this.monthlyTrendView = monthlyTrendView;
                 this.peopleApiService = peopleApiService;
+                this.rentEntryApiService = rentEntryApiService;
+                this.rentEntriesView = rentEntriesView;
                 this.receiptLines = [];
                 this.people = [];
                 this.assignments = [];
                 this.lineModes = new Map();
+                this.foodFlags = new Map();
                 this.receiptCategory = "Groceries";
                 this.cameraStream = null;
                 this.isPromptingForCategories = false;
@@ -1828,6 +1918,10 @@ var ReceiptRing;
                 this.serverHasGeminiKey = false;
                 this.userHasGeminiKey = false;
                 this.receiptImage = null;
+                this.rentEntries = [];
+                this.editingRentEntryId = null;
+                this.linkedReceipts = new Map();
+                this.linkingTransactionId = null;
                 this.items = this.storageService.load();
             }
             start() {
@@ -1870,6 +1964,32 @@ var ReceiptRing;
                 this.elements.refreshTransactionsButton.addEventListener("click", () => void this.refreshTransactions());
                 this.elements.budgetMonth.addEventListener("change", () => {
                     this.selectMonth(this.elements.budgetMonth.value || null);
+                });
+                this.elements.addRentEntryButton.addEventListener("click", () => this.openRentEntryForm());
+                this.elements.rentEntryCancelButton.addEventListener("click", () => this.closeRentEntryModal());
+                this.elements.rentEntrySaveButton.addEventListener("click", () => void this.saveRentEntry());
+                this.elements.rentEntriesList.addEventListener("click", (event) => {
+                    const target = event.target;
+                    if (target.textContent === "Edit") {
+                        const entryId = target.dataset.entryId;
+                        const entry = this.rentEntries.find((e) => e.id === entryId);
+                        if (entry)
+                            this.openRentEntryForm(entry);
+                    }
+                    else if (target.textContent === "Delete") {
+                        const entryId = target.dataset.entryId;
+                        const entry = this.rentEntries.find((e) => e.id === entryId);
+                        if (entry)
+                            void this.deleteRentEntry(entry);
+                    }
+                });
+                this.elements.receiptLinkCancelButton.addEventListener("click", () => this.closeReceiptLinkModal());
+                this.elements.receiptLinkList.addEventListener("click", (event) => {
+                    const target = event.target;
+                    const button = target.closest(".receipt-link-item");
+                    if (button instanceof HTMLElement && button.dataset.receiptId) {
+                        void this.selectReceiptForLink(button.dataset.receiptId);
+                    }
                 });
                 this.elements.tabButtons.forEach((button) => {
                     button.addEventListener("click", () => this.switchTab(button.dataset.tab));
@@ -1940,6 +2060,7 @@ var ReceiptRing;
                 }));
                 this.assignments = [];
                 this.lineModes.clear();
+                this.foodFlags.clear();
             }
             itemizeReceiptText() {
                 this.setItemsFromParse(this.parserService.parse(this.elements.receiptText.value));
@@ -1966,7 +2087,8 @@ var ReceiptRing;
                     onPersonDelete: (personId) => this.deletePerson(personId),
                     onAssignToggle: (lineId, personId) => this.toggleAssignment(lineId, personId),
                     onLineModeChange: (lineId, mode) => this.setLineMode(lineId, mode),
-                    onAssignValueChange: (lineId, personId, value) => this.setAssignmentValue(lineId, personId, value)
+                    onAssignValueChange: (lineId, personId, value) => this.setAssignmentValue(lineId, personId, value),
+                    onLineFood: (lineId, isFood) => this.toggleLineFood(lineId, isFood)
                 };
                 this.splitWorkspaceView.renderLines(this.elements.receiptLinesList, this.receiptLines, this.assignments, this.people, this.lineModes, handlers);
                 this.splitWorkspaceView.renderPeople(this.elements.peopleList, this.people, handlers);
@@ -2276,6 +2398,21 @@ var ReceiptRing;
                     : assignment);
                 this.renderTotals();
             }
+            toggleLineFood(lineId, isFood) {
+                this.foodFlags.set(lineId, isFood);
+                this.receiptLines = this.receiptLines.map((line) => line.id === lineId ? { ...line, isFood } : line);
+                this.render();
+            }
+            async updateLineFood(receiptId, lineId, isFood) {
+                try {
+                    await this.receiptApiService.updateLineFood(receiptId, lineId, isFood);
+                    await this.loadHistory();
+                }
+                catch (error) {
+                    const message = error instanceof Error ? error.message : "Could not update line.";
+                    window.alert(`Failed to update food flag. ${message}`);
+                }
+            }
             getSubtotal() {
                 return this.receiptLines.filter((line) => !line.ignored).reduce((sum, line) => sum + line.amount, 0);
             }
@@ -2308,7 +2445,8 @@ var ReceiptRing;
                         clientId: line.id,
                         label: line.label,
                         amount: line.amount,
-                        ignored: line.ignored
+                        ignored: line.ignored,
+                        isFood: this.foodFlags.get(line.id) ?? false
                     })),
                     assignments: this.assignments.map((assignment) => ({
                         lineClientId: assignment.lineId,
@@ -2334,7 +2472,7 @@ var ReceiptRing;
                 try {
                     const receipts = await this.receiptApiService.list();
                     this.elements.historyEmpty.classList.toggle("hidden", receipts.length > 0);
-                    this.splitWorkspaceView.renderHistory(this.elements.historyList, receipts, (receipt) => void this.deleteReceipt(receipt));
+                    this.splitWorkspaceView.renderHistory(this.elements.historyList, receipts, (receipt) => void this.deleteReceipt(receipt), (receiptId, lineId, isFood) => void this.updateLineFood(receiptId, lineId, isFood));
                 }
                 catch (error) {
                     this.elements.historyEmpty.classList.remove("hidden");
@@ -2468,6 +2606,7 @@ var ReceiptRing;
                 this.monthlySpend = this.spendingAggregatorService.aggregate(receipts, this.bankTransactions);
                 this.populateMonths();
                 this.renderConnections();
+                this.renderRentEntries();
                 this.renderTransactions();
                 this.renderTrend();
                 this.renderRing();
@@ -2546,6 +2685,7 @@ var ReceiptRing;
                 this.elements.budgetMonth.value = month ?? "";
                 this.renderTrend();
                 this.renderRing();
+                this.renderRentEntries();
                 this.renderTransactions();
             }
             formatMonthLabel(key) {
@@ -2575,6 +2715,8 @@ var ReceiptRing;
                 for (const txn of transactions.slice(0, 100)) {
                     const row = document.createElement("div");
                     row.className = "transaction-row";
+                    row.dataset.transactionId = txn.id;
+                    row.style.cursor = "pointer";
                     const main = document.createElement("div");
                     main.className = "transaction-main";
                     const desc = document.createElement("span");
@@ -2585,9 +2727,36 @@ var ReceiptRing;
                     const date = this.formatTransactionDate(txn.date);
                     meta.textContent = txn.category ? `${date} · ${txn.category}` : date;
                     main.append(desc, meta);
+                    const linkedReceiptId = this.linkedReceipts.get(txn.id);
+                    if (linkedReceiptId) {
+                        const linkIcon = document.createElement("span");
+                        linkIcon.className = "transaction-link-icon";
+                        linkIcon.setAttribute("aria-label", "Receipt linked");
+                        linkIcon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M13.5 3.5a4 4 0 0 1 4 4v3h2a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2h2v-3a4 4 0 0 1 4-4Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M10.5 11h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>`;
+                        main.append(linkIcon);
+                    }
                     const amount = document.createElement("span");
                     amount.className = "transaction-amount";
                     amount.textContent = this.currencyFormatService.format(txn.amount);
+                    row.addEventListener("dragover", (event) => {
+                        event.preventDefault();
+                        row.classList.add("is-drag-over");
+                    });
+                    row.addEventListener("dragleave", () => {
+                        row.classList.remove("is-drag-over");
+                    });
+                    row.addEventListener("drop", (event) => {
+                        event.preventDefault();
+                        row.classList.remove("is-drag-over");
+                        const receiptId = event.dataTransfer?.getData("text/plain");
+                        if (receiptId) {
+                            void this.linkReceiptToTransaction(receiptId, txn.id);
+                        }
+                    });
+                    row.addEventListener("click", () => this.openReceiptLinkModal(txn.id));
                     row.append(main, amount);
                     list.append(row);
                 }
@@ -2658,6 +2827,112 @@ var ReceiptRing;
             markItemReviewed(id) {
                 this.items = this.items.map((candidate) => candidate.id === id ? { ...candidate, needsCategoryReview: false } : candidate);
             }
+            renderRentEntries() {
+                void (async () => {
+                    try {
+                        if (!this.selectedMonth) {
+                            this.rentEntriesView.render(this.elements.rentEntriesList, []);
+                            return;
+                        }
+                        this.rentEntries = await this.rentEntryApiService.list(this.selectedMonth);
+                        this.rentEntriesView.render(this.elements.rentEntriesList, this.rentEntries);
+                    }
+                    catch (error) {
+                        console.error("Failed to load rent entries:", error);
+                        this.rentEntriesView.render(this.elements.rentEntriesList, []);
+                    }
+                })();
+            }
+            openRentEntryForm(entry) {
+                this.editingRentEntryId = entry?.id ?? null;
+                this.rentEntriesView.renderForm(this.elements.rentEntryModal, entry);
+                this.elements.rentEntryModal.classList.remove("hidden");
+            }
+            closeRentEntryModal() {
+                this.editingRentEntryId = null;
+                this.elements.rentEntryModal.classList.add("hidden");
+            }
+            async saveRentEntry() {
+                const date = this.elements.rentEntryDate.value.trim();
+                const amount = Number(this.elements.rentEntryAmount.value);
+                const propertyName = this.elements.rentEntryProperty.value.trim();
+                const photoFile = this.elements.rentEntryPhoto.files?.[0];
+                if (!date || !amount || amount <= 0) {
+                    window.alert("Please fill in the date and amount.");
+                    return;
+                }
+                this.elements.rentEntrySaveButton.setAttribute("disabled", "true");
+                try {
+                    const dateObj = new Date(date);
+                    const year = dateObj.getFullYear();
+                    const month = dateObj.getMonth() + 1;
+                    let photoDataUrl;
+                    if (photoFile) {
+                        photoDataUrl = await this.fileToDataUrl(photoFile);
+                    }
+                    const payload = {
+                        year,
+                        month,
+                        amount,
+                        propertyName: propertyName || undefined,
+                        date,
+                        photoDataUrl
+                    };
+                    if (this.editingRentEntryId) {
+                        await this.rentEntryApiService.update(this.editingRentEntryId, {
+                            amount,
+                            propertyName: propertyName || undefined,
+                            date,
+                            photoUrl: photoDataUrl
+                        });
+                    }
+                    else {
+                        await this.rentEntryApiService.create(payload);
+                    }
+                    window.alert(this.editingRentEntryId ? "Rent entry updated." : "Rent entry saved.");
+                    this.closeRentEntryModal();
+                    void this.renderRentEntries();
+                }
+                catch (error) {
+                    const message = error instanceof Error ? error.message : "Could not save rent entry.";
+                    if (message.includes("already exists")) {
+                        window.alert("A rent entry already exists for this month. Please edit the existing entry.");
+                    }
+                    else {
+                        window.alert(message);
+                    }
+                }
+                finally {
+                    this.elements.rentEntrySaveButton.removeAttribute("disabled");
+                }
+            }
+            async deleteRentEntry(entry) {
+                const label = this.formatTransactionDate(entry.date);
+                if (!window.confirm(`Delete rent entry for ${label}? This can't be undone.`)) {
+                    return;
+                }
+                try {
+                    await this.rentEntryApiService.delete(entry.id);
+                    window.alert("Rent entry deleted.");
+                    void this.renderRentEntries();
+                }
+                catch (error) {
+                    const message = error instanceof Error ? error.message : "Could not delete rent entry.";
+                    window.alert(`Failed to delete rent entry. ${message}`);
+                }
+            }
+            fileToDataUrl(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        resolve(reader.result);
+                    };
+                    reader.onerror = () => {
+                        reject(new Error("Could not read file."));
+                    };
+                    reader.readAsDataURL(file);
+                });
+            }
         }
         App.AppController = AppController;
     })(App = ReceiptRing.App || (ReceiptRing.App = {}));
@@ -2680,13 +2955,15 @@ var ReceiptRing;
     const bankApiService = new ReceiptRing.Services.BankApiService();
     const peopleApiService = new ReceiptRing.Services.PeopleApiService();
     const spendingAggregatorService = new ReceiptRing.Services.SpendingAggregatorService(categories);
+    const rentEntryApiService = new ReceiptRing.Services.RentEntryApiService();
     const elements = new ReceiptRing.UI.DomRegistryFactory().create();
     const categoryPromptView = new ReceiptRing.UI.CategoryPromptView(categories, elements);
     const splitWorkspaceView = new ReceiptRing.UI.SplitWorkspaceView(currencyFormatService, receiptApiService);
     const budgetRingView = new ReceiptRing.UI.BudgetRingView(currencyFormatService);
     const monthlyTrendView = new ReceiptRing.UI.MonthlyTrendView(currencyFormatService);
+    const rentEntriesView = new ReceiptRing.UI.RentEntriesView(currencyFormatService);
     const authView = new ReceiptRing.UI.AuthView(elements, authApiService);
-    const controller = new ReceiptRing.App.AppController(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, receiptImageService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView, peopleApiService);
+    const controller = new ReceiptRing.App.AppController(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, receiptImageService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView, peopleApiService, rentEntryApiService, rentEntriesView);
     let started = false;
     const startApp = () => {
         if (started)

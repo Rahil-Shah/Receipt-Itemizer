@@ -29,6 +29,7 @@
     "src/services/auth-api.service.ts",
     "src/services/bank-api.service.ts",
     "src/services/people-api.service.ts",
+    "src/services/rent-api.service.ts",
     "src/services/spending-aggregator.service.ts",
     "src/ui/dom-registry.ts",
     "src/ui/auth.view.ts",
@@ -36,6 +37,7 @@
     "src/ui/monthly-trend.view.ts",
     "src/ui/split-workspace.view.ts",
     "src/ui/category-prompt.view.ts",
+    "src/ui/rent-entries.view.ts",
     "src/app/app.controller.ts",
     "src/main.ts"
   ]
