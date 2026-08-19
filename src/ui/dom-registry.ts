@@ -75,6 +75,16 @@ namespace ReceiptRing.UI {
     bankConnections: HTMLElement;
     transactionsList: HTMLElement;
     transactionsEmpty: HTMLElement;
+    rentEntryModal: HTMLElement;
+    rentEntryDate: HTMLInputElement;
+    rentEntryAmount: HTMLInputElement;
+    rentEntryProperty: HTMLInputElement;
+    rentEntryPhoto: HTMLInputElement;
+    rentEntryCancelButton: HTMLButtonElement;
+    rentEntrySaveButton: HTMLButtonElement;
+    receiptLinkModal: HTMLElement;
+    receiptLinkList: HTMLElement;
+    receiptLinkCancelButton: HTMLButtonElement;
   }
 
   export class DomRegistryFactory {
@@ -156,7 +166,17 @@ namespace ReceiptRing.UI {
         bankStatus: this.getElement("#bankStatus", HTMLElement),
         bankConnections: this.getElement("#bankConnections", HTMLElement),
         transactionsList: this.getElement("#transactionsList", HTMLElement),
-        transactionsEmpty: this.getElement("#transactionsEmpty", HTMLElement)
+        transactionsEmpty: this.getElement("#transactionsEmpty", HTMLElement),
+        rentEntryModal: this.getElement("#rentEntryModal", HTMLElement),
+        rentEntryDate: this.getElement("#rentEntryDate", HTMLInputElement),
+        rentEntryAmount: this.getElement("#rentEntryAmount", HTMLInputElement),
+        rentEntryProperty: this.getElement("#rentEntryProperty", HTMLInputElement),
+        rentEntryPhoto: this.getElement("#rentEntryPhoto", HTMLInputElement),
+        rentEntryCancelButton: this.getElement("#rentEntryCancelButton", HTMLButtonElement),
+        rentEntrySaveButton: this.getElement("#rentEntrySaveButton", HTMLButtonElement),
+        receiptLinkModal: this.getElement("#receiptLinkModal", HTMLElement),
+        receiptLinkList: this.getElement("#receiptLinkList", HTMLElement),
+        receiptLinkCancelButton: this.getElement("#receiptLinkCancelButton", HTMLButtonElement)
       };
     }
 

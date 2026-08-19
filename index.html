@@ -387,6 +387,51 @@
       </section>
     </div>
 
+    <div class="modal-backdrop hidden" id="rentEntryModal" role="dialog" aria-modal="true" aria-labelledby="rentEntryTitle">
+      <section class="modal-card">
+        <header class="modal-heading">
+          <h2 id="rentEntryTitle">Add rent payment</h2>
+          <p>Track your monthly rent with proof of payment.</p>
+        </header>
+        <div class="rent-form">
+          <div class="field">
+            <label class="field-label" for="rentEntryDate">Date</label>
+            <input class="table-input" id="rentEntryDate" type="date" required />
+          </div>
+          <div class="field">
+            <label class="field-label" for="rentEntryAmount">Amount</label>
+            <input class="table-input" id="rentEntryAmount" type="number" min="0" step="0.01" required />
+          </div>
+          <div class="field">
+            <label class="field-label" for="rentEntryProperty">Property / Landlord</label>
+            <input class="table-input" id="rentEntryProperty" type="text" placeholder="Optional" />
+          </div>
+          <div class="field">
+            <label class="field-label" for="rentEntryPhoto">Photo / PDF proof</label>
+            <input class="table-input" id="rentEntryPhoto" type="file" accept="image/*,.pdf" />
+            <p class="field-note">JPEG, PNG, WebP, or PDF (under 8 MB)</p>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="rentEntryCancelButton" type="button">Cancel</button>
+          <button class="btn btn-primary" id="rentEntrySaveButton" type="button">Save rent entry</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop hidden" id="receiptLinkModal" role="dialog" aria-modal="true" aria-labelledby="receiptLinkTitle">
+      <section class="modal-card modal-card-wide">
+        <header class="modal-heading">
+          <h2 id="receiptLinkTitle">Attach receipt to transaction</h2>
+          <p>Select a receipt from your history to attach to this transaction as proof of payment.</p>
+        </header>
+        <div class="receipt-link-list" id="receiptLinkList"></div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="receiptLinkCancelButton" type="button">Cancel</button>
+        </div>
+      </section>
+    </div>
+
     <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
     <script src="dist/app.js"></script>
   </body>
