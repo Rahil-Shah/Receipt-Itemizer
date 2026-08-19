@@ -999,6 +999,66 @@ var ReceiptRing;
 (function (ReceiptRing) {
     var Services;
     (function (Services) {
+        class RentEntryApiService {
+            async create(payload) {
+                const response = await fetch("/api/rent-entries", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) {
+                    const message = await response.text();
+                    throw new Error(`Create failed (${response.status}): ${message}`);
+                }
+                return (await response.json());
+            }
+            async list(month) {
+                const url = month ? `/api/rent-entries?month=${encodeURIComponent(month)}` : "/api/rent-entries";
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`Could not load rent entries (${response.status}).`);
+                }
+                return (await response.json());
+            }
+            async update(id, updates) {
+                const response = await fetch(`/api/rent-entries/${encodeURIComponent(id)}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(updates)
+                });
+                if (!response.ok) {
+                    const message = await response.text();
+                    throw new Error(`Update failed (${response.status}): ${message}`);
+                }
+                return (await response.json());
+            }
+            async delete(id) {
+                const response = await fetch(`/api/rent-entries/${encodeURIComponent(id)}`, {
+                    method: "DELETE"
+                });
+                if (!response.ok) {
+                    const message = await response.text();
+                    throw new Error(`Delete failed (${response.status}): ${message}`);
+                }
+            }
+            async getSummary(month) {
+                const url = month
+                    ? `/api/rent-entries/summary?month=${encodeURIComponent(month)}`
+                    : "/api/rent-entries/summary";
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`Could not load rent summary (${response.status}).`);
+                }
+                return (await response.json());
+            }
+        }
+        Services.RentEntryApiService = RentEntryApiService;
+    })(Services = ReceiptRing.Services || (ReceiptRing.Services = {}));
+})(ReceiptRing || (ReceiptRing = {}));
+var ReceiptRing;
+(function (ReceiptRing) {
+    var Services;
+    (function (Services) {
         const FALLBACK_COLORS = ["#7cc4ff", "#f0a6ca", "#c3b1e1", "#ffd6a5", "#9ee7c0", "#e8998d"];
         const CATEGORY_ALIASES = {
             dining: "Dining",
@@ -1640,6 +1700,13 @@ var ReceiptRing;
                 receipts.forEach((receipt) => {
                     const card = document.createElement("details");
                     card.className = "history-card";
+                    card.draggable = true;
+                    card.addEventListener("dragstart", (event) => {
+                        if (event.dataTransfer) {
+                            event.dataTransfer.effectAllowed = "copy";
+                            event.dataTransfer.setData("text/plain", receipt.id);
+                        }
+                    });
                     const summary = document.createElement("summary");
                     summary.className = "history-summary";
                     const heading = document.createElement("div");
@@ -1873,6 +1940,123 @@ var ReceiptRing;
             }
         }
         UI.CategoryPromptView = CategoryPromptView;
+    })(UI = ReceiptRing.UI || (ReceiptRing.UI = {}));
+})(ReceiptRing || (ReceiptRing = {}));
+var ReceiptRing;
+(function (ReceiptRing) {
+    var UI;
+    (function (UI) {
+        class RentEntriesView {
+            constructor(currencyFormatService) {
+                this.currencyFormatService = currencyFormatService;
+            }
+            render(container, entries) {
+                container.innerHTML = "";
+                if (entries.length === 0) {
+                    const empty = document.createElement("div");
+                    empty.className = "empty-state";
+                    const icon = document.createElement("svg");
+                    icon.className = "empty-icon";
+                    icon.setAttribute("viewBox", "0 0 24 24");
+                    icon.setAttribute("fill", "none");
+                    icon.setAttribute("aria-hidden", "true");
+                    icon.innerHTML = `
+          <path d="M9 3.5h6a2 2 0 0 1 2 2v13l-1.6-1.2-1.6 1.2-1.2-1.2-1.2 1.2-1.6-1.2-1.6 1.2v-13a2 2 0 0 1 2-2Z"
+            stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+          <path d="M9 8h6M9 11h6M9 14h3"
+            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+        `;
+                    const title = document.createElement("strong");
+                    title.textContent = "No rent entries";
+                    const detail = document.createElement("span");
+                    detail.textContent = "Add your first monthly rent payment to start tracking.";
+                    empty.append(icon, title, detail);
+                    container.append(empty);
+                    return;
+                }
+                for (const entry of entries) {
+                    const row = document.createElement("div");
+                    row.className = "rent-entry-row";
+                    const main = document.createElement("div");
+                    main.className = "rent-entry-main";
+                    const header = document.createElement("div");
+                    header.className = "rent-entry-header";
+                    const date = document.createElement("span");
+                    date.className = "rent-entry-date";
+                    date.textContent = this.formatDate(entry.date);
+                    const propertyName = document.createElement("span");
+                    propertyName.className = "rent-entry-property";
+                    propertyName.textContent = entry.propertyName || "Rent payment";
+                    header.append(date, propertyName);
+                    const meta = document.createElement("span");
+                    meta.className = "rent-entry-meta";
+                    const photoIndicator = document.createElement("span");
+                    photoIndicator.className = "rent-entry-photo-indicator";
+                    if (entry.photoUrl) {
+                        photoIndicator.textContent = "📎";
+                        photoIndicator.setAttribute("title", `Proof of payment attached (${entry.photoMimeType || "image"})`);
+                    }
+                    meta.append(photoIndicator);
+                    header.append(meta);
+                    main.append(header);
+                    const amount = document.createElement("span");
+                    amount.className = "rent-entry-amount";
+                    amount.textContent = this.currencyFormatService.format(entry.amount);
+                    const actions = document.createElement("div");
+                    actions.className = "rent-entry-actions";
+                    const editButton = document.createElement("button");
+                    editButton.type = "button";
+                    editButton.className = "btn btn-ghost btn-small";
+                    editButton.textContent = "Edit";
+                    editButton.setAttribute("aria-label", `Edit rent entry for ${this.formatDate(entry.date)}`);
+                    editButton.dataset.entryId = entry.id;
+                    const deleteButton = document.createElement("button");
+                    deleteButton.type = "button";
+                    deleteButton.className = "btn btn-ghost btn-small";
+                    deleteButton.textContent = "Delete";
+                    deleteButton.setAttribute("aria-label", `Delete rent entry for ${this.formatDate(entry.date)}`);
+                    deleteButton.dataset.entryId = entry.id;
+                    actions.append(editButton, deleteButton);
+                    row.append(main, amount, actions);
+                    container.append(row);
+                }
+            }
+            renderForm(modal, entry) {
+                const title = modal.querySelector("#rentEntryTitle");
+                const dateInput = modal.querySelector("#rentEntryDate");
+                const amountInput = modal.querySelector("#rentEntryAmount");
+                const propertyInput = modal.querySelector("#rentEntryProperty");
+                const photoInput = modal.querySelector("#rentEntryPhoto");
+                if (entry) {
+                    title.textContent = "Edit rent payment";
+                    dateInput.value = entry.date;
+                    amountInput.value = String(entry.amount);
+                    propertyInput.value = entry.propertyName || "";
+                    photoInput.value = "";
+                }
+                else {
+                    title.textContent = "Add rent payment";
+                    dateInput.value = "";
+                    amountInput.value = "";
+                    propertyInput.value = "";
+                    photoInput.value = "";
+                }
+            }
+            formatDate(dateString) {
+                try {
+                    const date = new Date(dateString);
+                    return date.toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric"
+                    });
+                }
+                catch {
+                    return dateString;
+                }
+            }
+        }
+        UI.RentEntriesView = RentEntriesView;
     })(UI = ReceiptRing.UI || (ReceiptRing.UI = {}));
 })(ReceiptRing || (ReceiptRing = {}));
 var ReceiptRing;
@@ -2607,6 +2791,7 @@ var ReceiptRing;
                 this.populateMonths();
                 this.renderConnections();
                 this.renderRentEntries();
+                void this.renderEducationExpenses();
                 this.renderTransactions();
                 this.renderTrend();
                 this.renderRing();
@@ -2686,6 +2871,7 @@ var ReceiptRing;
                 this.renderTrend();
                 this.renderRing();
                 this.renderRentEntries();
+                void this.renderEducationExpenses();
                 this.renderTransactions();
             }
             formatMonthLabel(key) {
@@ -2932,6 +3118,123 @@ var ReceiptRing;
                     };
                     reader.readAsDataURL(file);
                 });
+            }
+            openReceiptLinkModal(transactionId) {
+                this.linkingTransactionId = transactionId;
+                this.renderReceiptLinkList();
+                this.elements.receiptLinkModal.classList.remove("hidden");
+            }
+            closeReceiptLinkModal() {
+                this.linkingTransactionId = null;
+                this.elements.receiptLinkModal.classList.add("hidden");
+            }
+            renderReceiptLinkList() {
+                const list = this.elements.receiptLinkList;
+                list.replaceChildren();
+                void (async () => {
+                    try {
+                        const receipts = await this.receiptApiService.list();
+                        if (receipts.length === 0) {
+                            const empty = document.querySelector("#receiptLinkEmpty");
+                            if (empty instanceof HTMLElement) {
+                                empty.classList.remove("hidden");
+                            }
+                            return;
+                        }
+                        receipts.forEach((receipt) => {
+                            const card = document.createElement("button");
+                            card.className = "receipt-link-item";
+                            card.type = "button";
+                            card.dataset.receiptId = receipt.id;
+                            const main = document.createElement("div");
+                            main.className = "receipt-link-main";
+                            const storeName = document.createElement("strong");
+                            storeName.textContent = receipt.storeName || "Untitled receipt";
+                            const meta = document.createElement("span");
+                            meta.className = "receipt-link-meta";
+                            const when = new Date(receipt.createdAt).toLocaleDateString();
+                            meta.textContent = `${receipt.category} · ${when}`;
+                            const amount = document.createElement("span");
+                            amount.className = "receipt-link-amount";
+                            amount.textContent = this.currencyFormatService.format(Number(receipt.total ?? 0));
+                            main.append(storeName, meta, amount);
+                            card.append(main);
+                            if (receipt.hasImage) {
+                                const thumb = document.createElement("img");
+                                thumb.className = "receipt-link-thumb";
+                                thumb.src = this.receiptApiService.imageUrl(receipt.id);
+                                thumb.alt = `Receipt from ${receipt.storeName || "an unknown store"}`;
+                                card.append(thumb);
+                            }
+                            list.append(card);
+                        });
+                    }
+                    catch (error) {
+                        const msg = document.createElement("p");
+                        msg.textContent = "Could not load receipts.";
+                        list.append(msg);
+                    }
+                })();
+            }
+            async selectReceiptForLink(receiptId) {
+                if (!this.linkingTransactionId)
+                    return;
+                try {
+                    await this.linkReceiptToTransaction(receiptId, this.linkingTransactionId);
+                    this.closeReceiptLinkModal();
+                }
+                catch (error) {
+                    const message = error instanceof Error ? error.message : "Could not link receipt.";
+                    window.alert(`Failed to link receipt. ${message}`);
+                }
+            }
+            async linkReceiptToTransaction(receiptId, transactionId) {
+                try {
+                    await this.receiptApiService.linkTransactionToReceipt(receiptId, transactionId);
+                    this.linkedReceipts.set(transactionId, receiptId);
+                    this.renderTransactions();
+                }
+                catch (error) {
+                    const message = error instanceof Error ? error.message : "Could not link receipt to transaction.";
+                    throw new Error(message);
+                }
+            }
+            async renderEducationExpenses() {
+                try {
+                    const month = this.selectedMonth ?? (this.spendingAggregatorService.monthKey(new Date().toISOString()) ?? undefined);
+                    const foodSummary = await this.receiptApiService.getFoodSummary(month);
+                    const rentSummary = await this.rentEntryApiService.getSummary(month);
+                    const foodTotal = foodSummary.foodTotal;
+                    const rentTotal = rentSummary.rentTotal;
+                    const combinedTotal = foodTotal + rentTotal;
+                    this.elements.educationFoodTotal.textContent = this.currencyFormatService.format(foodTotal);
+                    this.elements.educationRentTotal.textContent = this.currencyFormatService.format(rentTotal);
+                    this.elements.educationExpensesTotal.textContent = this.currencyFormatService.format(combinedTotal);
+                    const foodList = this.elements.foodItemsList;
+                    foodList.replaceChildren();
+                    this.elements.foodEmpty.classList.toggle("hidden", foodSummary.foodItems.length > 0);
+                    for (const item of foodSummary.foodItems) {
+                        const row = document.createElement("div");
+                        row.className = "food-item-row";
+                        const label = document.createElement("span");
+                        label.className = "food-item-label";
+                        label.textContent = item.label;
+                        const store = document.createElement("span");
+                        store.className = "food-item-store";
+                        store.textContent = item.receipt.storeName || "Unknown store";
+                        const amount = document.createElement("span");
+                        amount.className = "food-item-amount";
+                        amount.textContent = this.currencyFormatService.format(item.amount);
+                        row.append(label, store, amount);
+                        foodList.append(row);
+                    }
+                    this.elements.rentEmpty.classList.toggle("hidden", this.rentEntries.length > 0);
+                }
+                catch (error) {
+                    console.error("Failed to render education expenses:", error);
+                    this.elements.foodEmpty.classList.remove("hidden");
+                    this.elements.rentEmpty.classList.remove("hidden");
+                }
             }
         }
         App.AppController = AppController;
