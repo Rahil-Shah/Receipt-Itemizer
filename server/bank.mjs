@@ -456,7 +456,8 @@ export function createBank(prisma) {
             description: txn.description,
             amount: Number(txn.amount),
             category: txn.category,
-            account: txn.account?.name ?? null
+            account: txn.account?.name ?? null,
+            linkedReceiptId: txn.linkedReceiptId
           }))
         );
       } catch (error) {

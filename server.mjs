@@ -508,6 +508,464 @@ app.get("/api/people/search", requireAuth, async (req, res) => {
   }
 });
 
+// --- 529 Education Expenses Tracking (Food/Rent) ----------------------------
+
+// Helper: parse "YYYY-MM" month parameter
+function parseMonthParam(monthParam) {
+  if (!monthParam) return null;
+  const match = /^(\d{4})-(\d{2})$/.exec(monthParam);
+  if (!match) return null;
+  const year = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  if (month < 1 || month > 12) return null;
+  return { year, month };
+}
+
+// Helper: get date range for a month
+function getMonthRange(year, month) {
+  const start = new Date(year, month - 1, 1);
+  const end = new Date(year, month, 1);
+  return { start, end };
+}
+
+// Helper: serialize ReceiptLine with isFood
+function serializeReceiptLineWithFood(line) {
+  return {
+    id: line.id,
+    label: line.label,
+    amount: toNumber(line.amount),
+    isFood: line.isFood,
+    ignored: line.ignored,
+    sortOrder: line.sortOrder,
+    assignments: line.assignments.map((assignment) => ({
+      personName: assignment.person?.accountPerson?.name ?? "",
+      mode: assignment.mode,
+      value: toNumber(assignment.value)
+    }))
+  };
+}
+
+// Helper: serialize RentEntry
+function serializeRentEntry(entry) {
+  return {
+    id: entry.id,
+    year: entry.year,
+    month: entry.month,
+    amount: toNumber(entry.amount),
+    propertyName: entry.propertyName,
+    date: entry.date.toISOString().slice(0, 10),
+    hasPhoto: Boolean(entry.photoMimeType),
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt
+  };
+}
+
+// PATCH /api/receipts/:receiptId/lines/:lineId - Update receipt line's isFood flag
+app.patch("/api/receipts/:receiptId/lines/:lineId", requireAuth, async (req, res) => {
+  const body = req.body ?? {};
+
+  if (typeof body.isFood !== "boolean") {
+    return res.status(400).json({ error: "isFood must be a boolean." });
+  }
+
+  try {
+    // Verify receipt belongs to user
+    const receipt = await prisma.receipt.findFirst({
+      where: { id: req.params.receiptId, userId: req.userId },
+      select: { id: true }
+    });
+
+    if (!receipt) {
+      return res.status(404).json({ error: "Receipt not found." });
+    }
+
+    // Verify line belongs to this receipt
+    const line = await prisma.receiptLine.findFirst({
+      where: { id: req.params.lineId, receiptId: req.params.receiptId },
+      include: { assignments: { include: { person: true } } }
+    });
+
+    if (!line) {
+      return res.status(404).json({ error: "Receipt line not found." });
+    }
+
+    // Update the line
+    const updated = await prisma.receiptLine.update({
+      where: { id: req.params.lineId },
+      data: { isFood: body.isFood },
+      include: { assignments: { include: { person: true } } }
+    });
+
+    res.json(serializeReceiptLineWithFood(updated));
+  } catch (error) {
+    console.error("Failed to update receipt line:", error);
+    res.status(500).json({ error: "Failed to update receipt line." });
+  }
+});
+
+// GET /api/receipts/food-summary?month=YYYY-MM - Get food spending totals
+app.get("/api/receipts/food-summary", requireAuth, async (req, res) => {
+  try {
+    let whereClause = {
+      receipt: { userId: req.userId },
+      isFood: true
+    };
+
+    // Optional month filter
+    if (req.query.month) {
+      const parsed = parseMonthParam(req.query.month);
+      if (!parsed) {
+        return res.status(400).json({ error: "month must be in YYYY-MM format." });
+      }
+      const { start, end } = getMonthRange(parsed.year, parsed.month);
+      whereClause.receipt.createdAt = {
+        gte: start,
+        lt: end
+      };
+    }
+
+    const lines = await prisma.receiptLine.findMany({
+      where: whereClause,
+      include: { receipt: { select: { id: true, storeName: true, createdAt: true } } },
+      orderBy: { createdAt: "desc" }
+    });
+
+    const foodTotal = lines.reduce((sum, line) => sum + Number(line.amount), 0);
+
+    const foodItems = lines.map((line) => ({
+      lineId: line.id,
+      label: line.label,
+      amount: toNumber(line.amount),
+      receipt: {
+        id: line.receipt.id,
+        storeName: line.receipt.storeName,
+        date: line.receipt.createdAt.toISOString().slice(0, 10)
+      }
+    }));
+
+    res.json({ foodTotal, foodItems });
+  } catch (error) {
+    console.error("Failed to get food summary:", error);
+    res.status(500).json({ error: "Failed to get food summary." });
+  }
+});
+
+// PATCH /api/receipts/:receiptId/link-transaction - Link receipt to bank transaction
+app.patch("/api/receipts/:receiptId/link-transaction", requireAuth, async (req, res) => {
+  const body = req.body ?? {};
+  const bankTransactionId = String(body.bankTransactionId ?? "").trim();
+
+  if (!bankTransactionId) {
+    return res.status(400).json({ error: "bankTransactionId is required." });
+  }
+
+  try {
+    // Verify receipt belongs to user
+    const receipt = await prisma.receipt.findFirst({
+      where: { id: req.params.receiptId, userId: req.userId },
+      select: { id: true }
+    });
+
+    if (!receipt) {
+      return res.status(404).json({ error: "Receipt not found." });
+    }
+
+    // Verify transaction belongs to user and check 1:1 constraint
+    const transaction = await prisma.bankTransaction.findFirst({
+      where: { id: bankTransactionId },
+      include: { account: { include: { connection: { select: { userId: true } } } } }
+    });
+
+    if (!transaction) {
+      return res.status(404).json({ error: "Bank transaction not found." });
+    }
+
+    if (transaction.account?.connection?.userId !== req.userId) {
+      return res.status(403).json({ error: "Unauthorized." });
+    }
+
+    // Check if transaction is already linked to a different receipt
+    if (transaction.linkedReceiptId && transaction.linkedReceiptId !== req.params.receiptId) {
+      return res.status(400).json({ error: "This transaction is already linked to another receipt." });
+    }
+
+    // Update the transaction with the linked receipt
+    const updated = await prisma.bankTransaction.update({
+      where: { id: bankTransactionId },
+      data: { linkedReceiptId: req.params.receiptId },
+      include: { account: { select: { name: true, lastFour: true } } }
+    });
+
+    res.json({
+      id: updated.id,
+      date: updated.date.toISOString().slice(0, 10),
+      description: updated.description,
+      amount: toNumber(updated.amount),
+      category: updated.category,
+      account: updated.account?.name ?? null,
+      linkedReceiptId: updated.linkedReceiptId
+    });
+  } catch (error) {
+    console.error("Failed to link transaction:", error);
+    res.status(500).json({ error: "Failed to link transaction." });
+  }
+});
+
+// DELETE /api/receipts/:receiptId/link-transaction - Unlink receipt from transaction
+app.delete("/api/receipts/:receiptId/link-transaction", requireAuth, async (req, res) => {
+  try {
+    // Verify receipt belongs to user
+    const receipt = await prisma.receipt.findFirst({
+      where: { id: req.params.receiptId, userId: req.userId },
+      select: { id: true }
+    });
+
+    if (!receipt) {
+      return res.status(404).json({ error: "Receipt not found." });
+    }
+
+    // Find the transaction linked to this receipt
+    const transaction = await prisma.bankTransaction.findFirst({
+      where: { linkedReceiptId: req.params.receiptId },
+      include: { account: { include: { connection: { select: { userId: true } } } } }
+    });
+
+    if (!transaction) {
+      return res.status(404).json({ error: "No linked transaction found." });
+    }
+
+    // Verify transaction belongs to user
+    if (transaction.account?.connection?.userId !== req.userId) {
+      return res.status(403).json({ error: "Unauthorized." });
+    }
+
+    // Clear the link
+    await prisma.bankTransaction.update({
+      where: { id: transaction.id },
+      data: { linkedReceiptId: null }
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Failed to unlink transaction:", error);
+    res.status(500).json({ error: "Failed to unlink transaction." });
+  }
+});
+
+// POST /api/rent-entries - Create rent entry
+app.post("/api/rent-entries", requireAuth, async (req, res) => {
+  const body = req.body ?? {};
+  const { month, year, amount, propertyName, date, photoDataUrl } = body;
+
+  // Validate required fields
+  if (typeof month !== "number" || month < 1 || month > 12) {
+    return res.status(400).json({ error: "month must be a number between 1 and 12." });
+  }
+  if (typeof year !== "number" || year < 2000 || year > 2100) {
+    return res.status(400).json({ error: "year must be a valid year." });
+  }
+  if (!isStorableAmount(amount)) {
+    return res.status(400).json({ error: "amount must be a number within range." });
+  }
+  if (date !== undefined && date !== null && typeof date !== "string") {
+    return res.status(400).json({ error: "date must be a valid ISO string." });
+  }
+  if (propertyName !== undefined && propertyName !== null && !isShortString(propertyName)) {
+    return res.status(400).json({ error: "propertyName must be a short string." });
+  }
+
+  const photo = photoDataUrl ? parseImageDataUrl(photoDataUrl) : null;
+  if (photoDataUrl && !photo) {
+    return res.status(400).json({ error: "photoDataUrl must be a base64 JPEG, PNG, or WebP data URL." });
+  }
+  if (photoDataUrl && photoDataUrl.length > MAX_IMAGE_CHARS) {
+    return res.status(400).json({ error: "The photo is too large." });
+  }
+
+  try {
+    // Check unique constraint: (userId, year, month)
+    const existing = await prisma.rentEntry.findUnique({
+      where: { userId_year_month: { userId: req.userId, year, month } }
+    });
+
+    if (existing) {
+      return res.status(400).json({ error: "A rent entry already exists for this month." });
+    }
+
+    const entryDate = date ? new Date(date) : new Date(year, month - 1, 1);
+
+    const created = await prisma.rentEntry.create({
+      data: {
+        userId: req.userId,
+        year,
+        month,
+        amount,
+        propertyName: propertyName ?? null,
+        date: entryDate,
+        photoData: photo?.data ?? null,
+        photoMimeType: photo?.mimeType ?? null
+      }
+    });
+
+    res.status(201).json(serializeRentEntry(created));
+  } catch (error) {
+    console.error("Failed to create rent entry:", error);
+    res.status(500).json({ error: "Failed to create rent entry." });
+  }
+});
+
+// GET /api/rent-entries?month=YYYY-MM - List rent entries
+app.get("/api/rent-entries", requireAuth, async (req, res) => {
+  try {
+    let whereClause = { userId: req.userId };
+
+    // Optional month filter
+    if (req.query.month) {
+      const parsed = parseMonthParam(req.query.month);
+      if (!parsed) {
+        return res.status(400).json({ error: "month must be in YYYY-MM format." });
+      }
+      whereClause.year = parsed.year;
+      whereClause.month = parsed.month;
+    }
+
+    const entries = await prisma.rentEntry.findMany({
+      where: whereClause,
+      orderBy: [{ year: "desc" }, { month: "desc" }],
+      omit: { photoData: true }
+    });
+
+    res.json(entries.map(serializeRentEntry));
+  } catch (error) {
+    console.error("Failed to list rent entries:", error);
+    res.status(500).json({ error: "Failed to load rent entries." });
+  }
+});
+
+// PATCH /api/rent-entries/:entryId - Update rent entry
+app.patch("/api/rent-entries/:entryId", requireAuth, async (req, res) => {
+  const body = req.body ?? {};
+
+  try {
+    // Verify entry belongs to user
+    const entry = await prisma.rentEntry.findFirst({
+      where: { id: req.params.entryId, userId: req.userId }
+    });
+
+    if (!entry) {
+      return res.status(404).json({ error: "Rent entry not found." });
+    }
+
+    // Validate fields that are provided
+    const updateData = {};
+
+    if (body.amount !== undefined) {
+      if (!isStorableAmount(body.amount)) {
+        return res.status(400).json({ error: "amount must be a number within range." });
+      }
+      updateData.amount = body.amount;
+    }
+
+    if (body.propertyName !== undefined) {
+      if (body.propertyName !== null && !isShortString(body.propertyName)) {
+        return res.status(400).json({ error: "propertyName must be a short string." });
+      }
+      updateData.propertyName = body.propertyName;
+    }
+
+    if (body.date !== undefined && body.date !== null) {
+      if (typeof body.date !== "string") {
+        return res.status(400).json({ error: "date must be a valid ISO string." });
+      }
+      updateData.date = new Date(body.date);
+    }
+
+    if (body.photoDataUrl !== undefined && body.photoDataUrl !== null) {
+      const photo = parseImageDataUrl(body.photoDataUrl);
+      if (!photo) {
+        return res.status(400).json({ error: "photoDataUrl must be a base64 JPEG, PNG, or WebP data URL." });
+      }
+      if (body.photoDataUrl.length > MAX_IMAGE_CHARS) {
+        return res.status(400).json({ error: "The photo is too large." });
+      }
+      updateData.photoData = photo.data;
+      updateData.photoMimeType = photo.mimeType;
+    }
+
+    // Handle removing photo
+    if (body.photoDataUrl === null) {
+      updateData.photoData = null;
+      updateData.photoMimeType = null;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      // Nothing to update
+      return res.json(serializeRentEntry(entry));
+    }
+
+    const updated = await prisma.rentEntry.update({
+      where: { id: req.params.entryId },
+      data: updateData
+    });
+
+    res.json(serializeRentEntry(updated));
+  } catch (error) {
+    console.error("Failed to update rent entry:", error);
+    res.status(500).json({ error: "Failed to update rent entry." });
+  }
+});
+
+// DELETE /api/rent-entries/:entryId - Delete rent entry
+app.delete("/api/rent-entries/:entryId", requireAuth, async (req, res) => {
+  try {
+    const result = await prisma.rentEntry.deleteMany({
+      where: { id: req.params.entryId, userId: req.userId }
+    });
+
+    if (result.count === 0) {
+      return res.status(404).json({ error: "Rent entry not found." });
+    }
+
+    res.status(204).end();
+  } catch (error) {
+    console.error("Failed to delete rent entry:", error);
+    res.status(500).json({ error: "Failed to delete rent entry." });
+  }
+});
+
+// GET /api/rent-entries/summary?month=YYYY-MM - Get rent spending summary
+app.get("/api/rent-entries/summary", requireAuth, async (req, res) => {
+  try {
+    let whereClause = { userId: req.userId };
+
+    // Optional month filter
+    if (req.query.month) {
+      const parsed = parseMonthParam(req.query.month);
+      if (!parsed) {
+        return res.status(400).json({ error: "month must be in YYYY-MM format." });
+      }
+      whereClause.year = parsed.year;
+      whereClause.month = parsed.month;
+    }
+
+    const entries = await prisma.rentEntry.findMany({
+      where: whereClause,
+      orderBy: [{ year: "desc" }, { month: "desc" }],
+      omit: { photoData: true }
+    });
+
+    const rentTotal = entries.reduce((sum, entry) => sum + Number(entry.amount), 0);
+
+    res.json({
+      rentTotal,
+      entries: entries.map(serializeRentEntry)
+    });
+  } catch (error) {
+    console.error("Failed to get rent summary:", error);
+    res.status(500).json({ error: "Failed to get rent summary." });
+  }
+});
+
 // --- Static frontend -------------------------------------------------------
 
 // Never expose source, config, or dependency files over HTTP.
