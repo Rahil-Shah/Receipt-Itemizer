@@ -8,6 +8,7 @@ namespace ReceiptRing.Services {
     label: string;
     amount: number;
     ignored: boolean;
+    isFood?: boolean;
   }
 
   export interface SaveReceiptAssignment {
@@ -58,6 +59,22 @@ namespace ReceiptRing.Services {
     lines: SavedReceiptLineSummary[];
   }
 
+  export interface FoodSummaryItem {
+    lineId: string;
+    label: string;
+    amount: number;
+    receipt: {
+      id: string;
+      storeName: string | null;
+      date: string;
+    };
+  }
+
+  export interface FoodSummary {
+    foodTotal: number;
+    foodItems: FoodSummaryItem[];
+  }
+
   export class ReceiptApiService {
     // The photo lives behind the session cookie, so it is fetched from the API
     // like any other request rather than linked from a public path.
@@ -93,6 +110,51 @@ namespace ReceiptRing.Services {
       if (!response.ok) {
         const message = await response.text();
         throw new Error(`Delete failed (${response.status}): ${message}`);
+      }
+    }
+
+    async updateLineFood(receiptId: string, lineId: string, isFood: boolean): Promise<void> {
+      const response = await fetch(`/api/receipts/${encodeURIComponent(receiptId)}/lines/${encodeURIComponent(lineId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isFood })
+      });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(`Update failed (${response.status}): ${message}`);
+      }
+    }
+
+    async getFoodSummary(month?: string): Promise<FoodSummary> {
+      const url = month
+        ? `/api/receipts/food-summary?month=${encodeURIComponent(month)}`
+        : "/api/receipts/food-summary";
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Could not load food summary (${response.status}).`);
+      }
+      return (await response.json()) as FoodSummary;
+    }
+
+    async linkTransactionToReceipt(receiptId: string, bankTransactionId: string): Promise<void> {
+      const response = await fetch(`/api/receipts/${encodeURIComponent(receiptId)}/link-transaction`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bankTransactionId })
+      });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(`Link failed (${response.status}): ${message}`);
+      }
+    }
+
+    async unlinkTransactionFromReceipt(receiptId: string): Promise<void> {
+      const response = await fetch(`/api/receipts/${encodeURIComponent(receiptId)}/link-transaction`, {
+        method: "DELETE"
+      });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(`Unlink failed (${response.status}): ${message}`);
       }
     }
   }

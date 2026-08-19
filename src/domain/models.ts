@@ -49,6 +49,7 @@ namespace ReceiptRing.Domain {
     amount: number;
     confidence: number;
     ignored: boolean;
+    isFood?: boolean;
   }
 
   export interface SplitPerson {
@@ -79,5 +80,16 @@ namespace ReceiptRing.Domain {
     // Money on assigned lines that custom amounts or percentages left on
     // nobody's tab. Reported so it can't go missing in silence.
     unallocated: number;
+  }
+
+  export interface RentEntry {
+    id: string;
+    year: number;
+    month: number;
+    amount: number;
+    propertyName?: string;
+    date: string;
+    photoUrl?: string;
+    photoMimeType?: string;
   }
 }
