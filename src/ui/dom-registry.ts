@@ -75,6 +75,8 @@ namespace ReceiptRing.UI {
     bankConnections: HTMLElement;
     transactionsList: HTMLElement;
     transactionsEmpty: HTMLElement;
+    addRentEntryButton: HTMLButtonElement;
+    rentEntriesList: HTMLElement;
     rentEntryModal: HTMLElement;
     rentEntryDate: HTMLInputElement;
     rentEntryAmount: HTMLInputElement;
@@ -85,6 +87,16 @@ namespace ReceiptRing.UI {
     receiptLinkModal: HTMLElement;
     receiptLinkList: HTMLElement;
     receiptLinkCancelButton: HTMLButtonElement;
+    educationFoodTotal: HTMLElement;
+    educationRentTotal: HTMLElement;
+    educationExpensesTotal: HTMLElement;
+    foodSection: HTMLElement;
+    foodItemsList: HTMLElement;
+    foodEmpty: HTMLElement;
+    rentSection: HTMLElement;
+    rentEntriesList: HTMLElement;
+    rentEmpty: HTMLElement;
+    addRentEntryButton: HTMLButtonElement;
   }
 
   export class DomRegistryFactory {
@@ -176,7 +188,17 @@ namespace ReceiptRing.UI {
         rentEntrySaveButton: this.getElement("#rentEntrySaveButton", HTMLButtonElement),
         receiptLinkModal: this.getElement("#receiptLinkModal", HTMLElement),
         receiptLinkList: this.getElement("#receiptLinkList", HTMLElement),
-        receiptLinkCancelButton: this.getElement("#receiptLinkCancelButton", HTMLButtonElement)
+        receiptLinkCancelButton: this.getElement("#receiptLinkCancelButton", HTMLButtonElement),
+        educationFoodTotal: this.getElement("#educationFoodTotal", HTMLElement),
+        educationRentTotal: this.getElement("#educationRentTotal", HTMLElement),
+        educationExpensesTotal: this.getElement("#educationExpensesTotal", HTMLElement),
+        foodSection: this.getElement("#foodSection", HTMLElement),
+        foodItemsList: this.getElement("#foodItemsList", HTMLElement),
+        foodEmpty: this.getElement("#foodEmpty", HTMLElement),
+        rentSection: this.getElement("#rentSection", HTMLElement),
+        rentEntriesList: this.getElement("#rentEntriesList", HTMLElement),
+        rentEmpty: this.getElement("#rentEmpty", HTMLElement),
+        addRentEntryButton: this.getElement("#addRentEntryButton", HTMLButtonElement)
       };
     }
 

@@ -249,6 +249,69 @@
             </div>
           </section>
 
+          <section class="panel" aria-label="Rent payments">
+            <header class="panel-header">
+              <h2>Rent payments</h2>
+              <button class="btn btn-primary btn-small" id="addRentEntryButton" type="button">Add rent</button>
+            </header>
+            <div class="panel-body">
+              <div class="rent-entries-list" id="rentEntriesList"></div>
+            </div>
+          </section>
+
+          <section class="panel" aria-label="Education expenses (529)">
+            <header class="panel-header">
+              <h2>Education Expenses</h2>
+            </header>
+            <div class="panel-body">
+              <div class="education-expenses-stats">
+                <div class="expense-stat">
+                  <span class="stat-label">Food</span>
+                  <span class="stat-value" id="educationFoodTotal">$0.00</span>
+                </div>
+                <div class="expense-stat">
+                  <span class="stat-label">Rent</span>
+                  <span class="stat-value" id="educationRentTotal">$0.00</span>
+                </div>
+                <div class="expense-stat stat-combined">
+                  <span class="stat-label">Total</span>
+                  <span class="stat-value" id="educationExpensesTotal">$0.00</span>
+                </div>
+              </div>
+
+              <div class="education-sections">
+                <div class="education-section" id="foodSection">
+                  <header class="section-header">
+                    <h3>
+                      <button class="section-toggle" data-section="food" aria-expanded="true" aria-label="Toggle food items">▼</button>
+                      Food & Groceries
+                    </h3>
+                  </header>
+                  <div class="section-content" id="foodItemsList"></div>
+                  <div class="empty-state hidden" id="foodEmpty">
+                    <span>No food items marked for this month.</span>
+                  </div>
+                </div>
+
+                <div class="education-section" id="rentSection">
+                  <header class="section-header">
+                    <h3>
+                      <button class="section-toggle" data-section="rent" aria-expanded="true" aria-label="Toggle rent entries">▼</button>
+                      Rent Payments
+                    </h3>
+                  </header>
+                  <div class="section-content" id="rentEntriesList"></div>
+                  <div class="section-actions">
+                    <button class="btn btn-small btn-secondary" id="addRentEntryButton" type="button">+ Add rent payment</button>
+                  </div>
+                  <div class="empty-state hidden" id="rentEmpty">
+                    <span>No rent entries for this month.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <section class="panel" aria-label="Bank transactions">
             <header class="panel-header">
               <h2>Bank transactions</h2>
