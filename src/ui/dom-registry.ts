@@ -75,8 +75,6 @@ namespace ReceiptRing.UI {
     bankConnections: HTMLElement;
     transactionsList: HTMLElement;
     transactionsEmpty: HTMLElement;
-    addRentEntryButton: HTMLButtonElement;
-    rentEntriesList: HTMLElement;
     rentEntryModal: HTMLElement;
     rentEntryDate: HTMLInputElement;
     rentEntryAmount: HTMLInputElement;
@@ -179,6 +177,8 @@ namespace ReceiptRing.UI {
         bankConnections: this.getElement("#bankConnections", HTMLElement),
         transactionsList: this.getElement("#transactionsList", HTMLElement),
         transactionsEmpty: this.getElement("#transactionsEmpty", HTMLElement),
+        addRentEntryButton: this.getElement("#addRentEntryButton", HTMLButtonElement),
+        rentEntriesList: this.getElement("#rentEntriesList", HTMLElement),
         rentEntryModal: this.getElement("#rentEntryModal", HTMLElement),
         rentEntryDate: this.getElement("#rentEntryDate", HTMLInputElement),
         rentEntryAmount: this.getElement("#rentEntryAmount", HTMLInputElement),
@@ -196,9 +196,7 @@ namespace ReceiptRing.UI {
         foodItemsList: this.getElement("#foodItemsList", HTMLElement),
         foodEmpty: this.getElement("#foodEmpty", HTMLElement),
         rentSection: this.getElement("#rentSection", HTMLElement),
-        rentEntriesList: this.getElement("#rentEntriesList", HTMLElement),
-        rentEmpty: this.getElement("#rentEmpty", HTMLElement),
-        addRentEntryButton: this.getElement("#addRentEntryButton", HTMLButtonElement)
+        rentEmpty: this.getElement("#rentEmpty", HTMLElement)
       };
     }
 
