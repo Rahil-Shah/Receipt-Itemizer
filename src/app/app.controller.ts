@@ -851,6 +851,7 @@ namespace ReceiptRing.App {
       this.populateMonths();
       this.renderConnections();
       this.renderRentEntries();
+      void this.renderEducationExpenses();
       this.renderTransactions();
       this.renderTrend();
       this.renderRing();
@@ -956,6 +957,7 @@ namespace ReceiptRing.App {
       this.renderTrend();
       this.renderRing();
       this.renderRentEntries();
+      void this.renderEducationExpenses();
       this.renderTransactions();
     }
 
@@ -1332,6 +1334,55 @@ namespace ReceiptRing.App {
       } catch (error) {
         const message = error instanceof Error ? error.message : "Could not link receipt to transaction.";
         throw new Error(message);
+      }
+    }
+
+    private async renderEducationExpenses(): Promise<void> {
+      try {
+        const month = this.selectedMonth ?? (this.spendingAggregatorService.monthKey(new Date().toISOString()) ?? undefined);
+        const foodSummary = await this.receiptApiService.getFoodSummary(month);
+        const rentSummary = await this.rentEntryApiService.getSummary(month);
+
+        const foodTotal = foodSummary.foodTotal;
+        const rentTotal = rentSummary.rentTotal;
+        const combinedTotal = foodTotal + rentTotal;
+
+        // Update totals display
+        this.elements.educationFoodTotal.textContent = this.currencyFormatService.format(foodTotal);
+        this.elements.educationRentTotal.textContent = this.currencyFormatService.format(rentTotal);
+        this.elements.educationExpensesTotal.textContent = this.currencyFormatService.format(combinedTotal);
+
+        // Render food items list
+        const foodList = this.elements.foodItemsList;
+        foodList.replaceChildren();
+        this.elements.foodEmpty.classList.toggle("hidden", foodSummary.foodItems.length > 0);
+
+        for (const item of foodSummary.foodItems) {
+          const row = document.createElement("div");
+          row.className = "food-item-row";
+
+          const label = document.createElement("span");
+          label.className = "food-item-label";
+          label.textContent = item.label;
+
+          const store = document.createElement("span");
+          store.className = "food-item-store";
+          store.textContent = item.receipt.storeName || "Unknown store";
+
+          const amount = document.createElement("span");
+          amount.className = "food-item-amount";
+          amount.textContent = this.currencyFormatService.format(item.amount);
+
+          row.append(label, store, amount);
+          foodList.append(row);
+        }
+
+        // Rent entries are already handled by renderRentEntries which is called in loadBudgeting
+        this.elements.rentEmpty.classList.toggle("hidden", this.rentEntries.length > 0);
+      } catch (error) {
+        console.error("Failed to render education expenses:", error);
+        this.elements.foodEmpty.classList.remove("hidden");
+        this.elements.rentEmpty.classList.remove("hidden");
       }
     }
 
