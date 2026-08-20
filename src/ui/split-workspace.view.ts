@@ -226,6 +226,12 @@ namespace ReceiptRing.UI {
 
     renderTotals(container: HTMLElement, summary: Domain.SplitSummary): void {
       container.innerHTML = "";
+
+      // Only surface the food line on receipts where anything was flagged, and
+      // then on every person's row so the column reads consistently -- including
+      // the people who owe nothing toward it.
+      const anyFood = summary.totals.some((total) => total.foodTotal > 0);
+
       summary.totals.forEach((total) => {
         const row = document.createElement("div");
         row.className = "split-total-row";
@@ -241,7 +247,14 @@ namespace ReceiptRing.UI {
         const final = document.createElement("b");
         final.textContent = this.currencyFormatService.format(total.finalTotal);
 
-        row.append(name, items, tax, final);
+        row.append(name, items);
+        if (anyFood) {
+          const food = document.createElement("span");
+          food.className = "is-food-line";
+          food.textContent = `Food ${this.currencyFormatService.format(total.foodTotal)}`;
+          row.append(food);
+        }
+        row.append(tax, final);
         container.append(row);
       });
 
@@ -263,13 +276,61 @@ namespace ReceiptRing.UI {
         row.append(name, detail, spacer, value);
         container.append(row);
       }
+
+      if (summary.totals.length > 0) {
+        container.append(this.buildReconciliation(summary));
+      }
+    }
+
+    /**
+     * The check the user actually cares about at the end of a split: does what
+     * everyone owes add back up to what the receipt says? Both figures are shown
+     * side by side, because "balanced" is only trustworthy if you can see the
+     * two numbers it is claiming are equal.
+     */
+    private buildReconciliation(summary: Domain.SplitSummary): HTMLElement {
+      const block = document.createElement("div");
+      block.className = "split-reconcile";
+      block.classList.toggle("is-balanced", summary.isBalanced);
+
+      const addLine = (label: string, amount: number, variant = ""): void => {
+        const line = document.createElement("div");
+        line.className = variant ? `split-reconcile-line ${variant}` : "split-reconcile-line";
+        const text = document.createElement("span");
+        text.textContent = label;
+        const value = document.createElement("b");
+        value.textContent = this.currencyFormatService.format(amount);
+        line.append(text, value);
+        block.append(line);
+      };
+
+      addLine("Split across everyone", summary.assignedTotal);
+      addLine("Receipt total", summary.receiptTotal);
+
+      const status = document.createElement("div");
+      status.className = "split-reconcile-status";
+      if (summary.isBalanced) {
+        status.textContent = "Balanced — the split matches the receipt.";
+      } else {
+        const gap = summary.receiptTotal - summary.assignedTotal;
+        const amount = this.currencyFormatService.format(Math.abs(gap));
+        status.textContent =
+          gap > 0
+            ? `${amount} of the receipt is not on anyone's tab yet.`
+            : `The split is over the receipt total by ${amount}.`;
+      }
+      block.append(status);
+
+      return block;
     }
 
     renderHistory(
       container: HTMLElement,
       receipts: readonly Services.SavedReceiptSummary[],
       onDelete?: (receipt: Services.SavedReceiptSummary) => void,
-      onLineFood?: (receiptId: string, lineId: string, isFood: boolean) => void
+      onLineFood?: (receiptId: string, lineId: string, isFood: boolean) => void,
+      onLinkTransaction?: (receipt: Services.SavedReceiptSummary) => void,
+      onUnlinkTransaction?: (receipt: Services.SavedReceiptSummary) => void
     ): void {
       container.innerHTML = "";
       receipts.forEach((receipt) => {

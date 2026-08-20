@@ -947,9 +947,11 @@ input[type="number"] {
   font-variant-numeric: tabular-nums;
 }
 
+/* Spans however many detail lines the row happens to have -- the food line is
+   only present on receipts where something was flagged. */
 .split-total-row b {
   grid-column: 2;
-  grid-row: 1 / span 3;
+  grid-row: 1 / -1;
   align-self: center;
   font-family: var(--font-mono);
   font-size: 15px;
@@ -963,6 +965,55 @@ input[type="number"] {
 .split-total-row.is-unallocated strong,
 .split-total-row.is-unallocated b {
   color: var(--amber);
+}
+
+/* The food slice of a person's items, tinted so it reads as a subset of the
+   line above it rather than another charge. */
+.split-total-row .is-food-line {
+  color: var(--accent);
+  opacity: 0.75;
+}
+
+/* ---------------- Split reconciliation ---------------- */
+/* Closes the loop on a split: what everyone owes, what the receipt says, and
+   whether those agree. Sits under the per-person rows as a summary footer. */
+.split-reconcile {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border-strong);
+  background: var(--well);
+}
+
+.split-reconcile-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.split-reconcile-line span {
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+.split-reconcile-line b {
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.split-reconcile-status {
+  margin-top: 4px;
+  color: var(--amber);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.split-reconcile.is-balanced .split-reconcile-status {
+  color: var(--accent);
 }
 
 /* ---------------- Save panel ---------------- */

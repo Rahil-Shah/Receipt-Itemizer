@@ -71,6 +71,9 @@ namespace ReceiptRing.Domain {
     personId: string;
     personName: string;
     itemTotal: number;
+    // The slice of itemTotal that came from food-flagged lines. Item amounts
+    // only, so it is always <= itemTotal and never includes tax.
+    foodTotal: number;
     allocatedTax: number;
     finalTotal: number;
   }
@@ -80,6 +83,13 @@ namespace ReceiptRing.Domain {
     // Money on assigned lines that custom amounts or percentages left on
     // nobody's tab. Reported so it can't go missing in silence.
     unallocated: number;
+    // What the receipt asks for: every non-ignored line plus tax.
+    receiptTotal: number;
+    // What the split actually hands out. It falls short of receiptTotal by
+    // `unallocated` plus everything on lines nobody was assigned to, so the
+    // gap between the two is the wider number of the pair.
+    assignedTotal: number;
+    isBalanced: boolean;
   }
 
   export interface RentEntry {

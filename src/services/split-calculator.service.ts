@@ -11,12 +11,22 @@ namespace ReceiptRing.Services {
       tax: number
     ): Domain.SplitSummary {
       const itemCents = new Map<string, number>();
-      people.forEach((person) => itemCents.set(person.id, 0));
+      const foodCents = new Map<string, number>();
+      people.forEach((person) => {
+        itemCents.set(person.id, 0);
+        foodCents.set(person.id, 0);
+      });
       let unallocatedCents = 0;
+      const taxCents = this.toCents(tax);
+      let receiptCents = taxCents;
 
       lines
         .filter((line) => !line.ignored)
         .forEach((line) => {
+          // The receipt is owed this whether or not anyone was assigned to the
+          // line, so it is counted before the early return below.
+          receiptCents += this.toCents(line.amount);
+
           const lineAssignments = assignments.filter((assignment) => assignment.lineId === line.id);
           if (lineAssignments.length === 0) return;
 
@@ -24,6 +34,14 @@ namespace ReceiptRing.Services {
           let allocated = 0;
           shares.forEach((cents, personId) => {
             itemCents.set(personId, (itemCents.get(personId) ?? 0) + cents);
+            // Food is the same share of the same line, so it is taken from the
+            // one `shares` map rather than recomputed: two code paths could
+            // round apart and claim someone's food exceeded their items. Tax is
+            // spread proportionally over whole item totals, so no cent of it
+            // belongs to the food lines in particular — food stays items-only.
+            if (line.isFood) {
+              foodCents.set(personId, (foodCents.get(personId) ?? 0) + cents);
+            }
             allocated += cents;
           });
 
@@ -36,21 +54,34 @@ namespace ReceiptRing.Services {
 
       const orderedPeople = [...people];
       const weights = orderedPeople.map((person) => itemCents.get(person.id) ?? 0);
-      const taxShares = this.distributeProportionally(this.toCents(tax), weights);
+      const taxShares = this.distributeProportionally(taxCents, weights);
 
+      let assignedCents = 0;
       const totals = orderedPeople.map((person, index) => {
         const itemTotal = weights[index];
         const allocatedTax = taxShares[index];
+        assignedCents += itemTotal + allocatedTax;
         return {
           personId: person.id,
           personName: person.name,
           itemTotal: this.toAmount(itemTotal),
+          foodTotal: this.toAmount(foodCents.get(person.id) ?? 0),
           allocatedTax: this.toAmount(allocatedTax),
           finalTotal: this.toAmount(itemTotal + allocatedTax)
         };
       });
 
-      return { totals, unallocated: this.toAmount(unallocatedCents) };
+      return {
+        totals,
+        unallocated: this.toAmount(unallocatedCents),
+        receiptTotal: this.toAmount(receiptCents),
+        assignedTotal: this.toAmount(assignedCents),
+        // Compared as cent integers: the dollar values are the same numbers
+        // divided by 100, and asking whether two of those are within half a
+        // cent of each other reintroduces exactly the float slop the cent
+        // discipline exists to avoid.
+        isBalanced: receiptCents === assignedCents
+      };
     }
 
     getUnassignedCount(
