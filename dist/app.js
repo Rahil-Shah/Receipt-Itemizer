@@ -1153,6 +1153,54 @@ var ReceiptRing;
 })(ReceiptRing || (ReceiptRing = {}));
 var ReceiptRing;
 (function (ReceiptRing) {
+    var Services;
+    (function (Services) {
+        class NotificationService {
+            constructor() {
+                this.toastContainer = this.ensureContainer();
+            }
+            show(message, type = "info", duration = 4000) {
+                const toast = document.createElement("div");
+                toast.className = `toast toast-${type}`;
+                toast.setAttribute("role", "status");
+                toast.setAttribute("aria-live", "polite");
+                toast.textContent = message;
+                this.toastContainer.appendChild(toast);
+                requestAnimationFrame(() => {
+                    toast.classList.add("toast-visible");
+                });
+                setTimeout(() => {
+                    toast.classList.remove("toast-visible");
+                    setTimeout(() => {
+                        toast.remove();
+                    }, 300);
+                }, duration);
+            }
+            success(message, duration) {
+                this.show(message, "success", duration);
+            }
+            error(message, duration) {
+                this.show(message, "error", duration);
+            }
+            info(message, duration) {
+                this.show(message, "info", duration);
+            }
+            ensureContainer() {
+                let container = document.querySelector("#toastContainer");
+                if (!container) {
+                    container = document.createElement("div");
+                    container.id = "toastContainer";
+                    container.className = "toast-container";
+                    document.body.appendChild(container);
+                }
+                return container;
+            }
+        }
+        Services.NotificationService = NotificationService;
+    })(Services = ReceiptRing.Services || (ReceiptRing.Services = {}));
+})(ReceiptRing || (ReceiptRing = {}));
+var ReceiptRing;
+(function (ReceiptRing) {
     var UI;
     (function (UI) {
         class DomRegistryFactory {
@@ -2064,7 +2112,7 @@ var ReceiptRing;
     var App;
     (function (App) {
         class AppController {
-            constructor(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, receiptImageService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView, peopleApiService, rentEntryApiService, rentEntriesView) {
+            constructor(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, receiptImageService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView, peopleApiService, rentEntryApiService, rentEntriesView, notificationService) {
                 this.elements = elements;
                 this.parserService = parserService;
                 this.categorizationService = categorizationService;
@@ -2086,6 +2134,7 @@ var ReceiptRing;
                 this.peopleApiService = peopleApiService;
                 this.rentEntryApiService = rentEntryApiService;
                 this.rentEntriesView = rentEntriesView;
+                this.notificationService = notificationService;
                 this.receiptLines = [];
                 this.people = [];
                 this.assignments = [];
@@ -2511,7 +2560,7 @@ var ReceiptRing;
                 if (!name)
                     return;
                 if (this.people.some((p) => p.name.toLowerCase() === name.toLowerCase())) {
-                    window.alert("This person is already in the list.");
+                    this.notificationService.error("This person is already in the list.");
                     return;
                 }
                 this.elements.addPersonButton.setAttribute("disabled", "true");
@@ -2524,7 +2573,7 @@ var ReceiptRing;
                     }
                     catch (error) {
                         const message = error instanceof Error ? error.message : "Could not add person.";
-                        window.alert(message);
+                        this.notificationService.error(message);
                     }
                     finally {
                         this.elements.addPersonButton.removeAttribute("disabled");
@@ -2541,7 +2590,7 @@ var ReceiptRing;
                     }
                     catch (error) {
                         const message = error instanceof Error ? error.message : "Could not delete person.";
-                        window.alert(message);
+                        this.notificationService.error(message);
                     }
                 })();
             }
@@ -2594,7 +2643,7 @@ var ReceiptRing;
                 }
                 catch (error) {
                     const message = error instanceof Error ? error.message : "Could not update line.";
-                    window.alert(`Failed to update food flag. ${message}`);
+                    this.notificationService.error(`Failed to update food flag. ${message}`);
                 }
             }
             getSubtotal() {
@@ -2679,7 +2728,7 @@ var ReceiptRing;
                 }
                 catch (error) {
                     const message = error instanceof Error ? error.message : "Please try again.";
-                    window.alert(`Couldn't delete receipt. ${message}`);
+                    this.notificationService.error(`Couldn't delete receipt. ${message}`);
                 }
             }
             setBankStatus(message) {
@@ -3044,7 +3093,7 @@ var ReceiptRing;
                 const propertyName = this.elements.rentEntryProperty.value.trim();
                 const photoFile = this.elements.rentEntryPhoto.files?.[0];
                 if (!date || !amount || amount <= 0) {
-                    window.alert("Please fill in the date and amount.");
+                    this.notificationService.error("Please fill in the date and amount.");
                     return;
                 }
                 this.elements.rentEntrySaveButton.setAttribute("disabled", "true");
@@ -3075,17 +3124,17 @@ var ReceiptRing;
                     else {
                         await this.rentEntryApiService.create(payload);
                     }
-                    window.alert(this.editingRentEntryId ? "Rent entry updated." : "Rent entry saved.");
+                    this.notificationService.success(this.editingRentEntryId ? "Rent entry updated." : "Rent entry saved.");
                     this.closeRentEntryModal();
                     void this.renderRentEntries();
                 }
                 catch (error) {
                     const message = error instanceof Error ? error.message : "Could not save rent entry.";
                     if (message.includes("already exists")) {
-                        window.alert("A rent entry already exists for this month. Please edit the existing entry.");
+                        this.notificationService.error("A rent entry already exists for this month. Please edit the existing entry.");
                     }
                     else {
-                        window.alert(message);
+                        this.notificationService.error(message);
                     }
                 }
                 finally {
@@ -3099,12 +3148,12 @@ var ReceiptRing;
                 }
                 try {
                     await this.rentEntryApiService.delete(entry.id);
-                    window.alert("Rent entry deleted.");
+                    this.notificationService.success("Rent entry deleted.");
                     void this.renderRentEntries();
                 }
                 catch (error) {
                     const message = error instanceof Error ? error.message : "Could not delete rent entry.";
-                    window.alert(`Failed to delete rent entry. ${message}`);
+                    this.notificationService.error(`Failed to delete rent entry. ${message}`);
                 }
             }
             fileToDataUrl(file) {
@@ -3185,7 +3234,7 @@ var ReceiptRing;
                 }
                 catch (error) {
                     const message = error instanceof Error ? error.message : "Could not link receipt.";
-                    window.alert(`Failed to link receipt. ${message}`);
+                    this.notificationService.error(`Failed to link receipt. ${message}`);
                 }
             }
             async linkReceiptToTransaction(receiptId, transactionId) {
@@ -3259,6 +3308,7 @@ var ReceiptRing;
     const peopleApiService = new ReceiptRing.Services.PeopleApiService();
     const spendingAggregatorService = new ReceiptRing.Services.SpendingAggregatorService(categories);
     const rentEntryApiService = new ReceiptRing.Services.RentEntryApiService();
+    const notificationService = new ReceiptRing.Services.NotificationService();
     const elements = new ReceiptRing.UI.DomRegistryFactory().create();
     const categoryPromptView = new ReceiptRing.UI.CategoryPromptView(categories, elements);
     const splitWorkspaceView = new ReceiptRing.UI.SplitWorkspaceView(currencyFormatService, receiptApiService);
@@ -3266,7 +3316,7 @@ var ReceiptRing;
     const monthlyTrendView = new ReceiptRing.UI.MonthlyTrendView(currencyFormatService);
     const rentEntriesView = new ReceiptRing.UI.RentEntriesView(currencyFormatService);
     const authView = new ReceiptRing.UI.AuthView(elements, authApiService);
-    const controller = new ReceiptRing.App.AppController(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, receiptImageService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView, peopleApiService, rentEntryApiService, rentEntriesView);
+    const controller = new ReceiptRing.App.AppController(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, receiptImageService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView, peopleApiService, rentEntryApiService, rentEntriesView, notificationService);
     let started = false;
     const startApp = () => {
         if (started)
