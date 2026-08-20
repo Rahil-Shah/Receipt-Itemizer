@@ -275,6 +275,14 @@ namespace ReceiptRing.UI {
       receipts.forEach((receipt) => {
         const card = document.createElement("details");
         card.className = "history-card";
+        card.draggable = true;
+
+        card.addEventListener("dragstart", (event) => {
+          if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = "copy";
+            event.dataTransfer.setData("text/plain", receipt.id);
+          }
+        });
 
         const summary = document.createElement("summary");
         summary.className = "history-summary";
