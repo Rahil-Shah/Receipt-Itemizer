@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "none",
+    "lib": ["DOM", "ES2020"],
+    "types": [],
+    "strict": true,
+    "skipLibCheck": true,
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": true,
+    "outFile": "dist/bundle.js",
+    "removeComments": true
+  },
+  "files": [
+    "../src/domain/models.ts",
+    "../src/config/categories.ts",
+    "../src/config/sampleReceipt.ts",
+    "../src/services/id.service.ts",
+    "../src/services/currency-format.service.ts",
+    "../src/services/category-rule-storage.service.ts",
+    "../src/services/categorization.service.ts",
+    "../src/services/receipt-parser.service.ts",
+    "../src/services/split-calculator.service.ts",
+    "../src/services/receipt-api.service.ts",
+    "../src/services/bank-api.service.ts",
+    "../src/services/rent-api.service.ts",
+    "../src/services/spending-aggregator.service.ts"
+  ]
+}

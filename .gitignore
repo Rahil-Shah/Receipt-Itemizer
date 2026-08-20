@@ -11,3 +11,6 @@ certs/
 *.crt
 *.p12
 *.pfx
+
+# Compiled test bundle (built by npm test)
+tests/dist/
