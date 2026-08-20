@@ -104,15 +104,6 @@ registerGemini(app, requireAuth, prisma);
 
 const toNumber = (value) => (value === null || value === undefined ? null : Number(value));
 
-function parseMonthParam(value) {
-  const match = /^(\d{4})-(\d{2})$/.exec(String(value));
-  if (!match) return null;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  if (year < 2000 || year > 2100 || month < 1 || month > 12) return null;
-  return { year, month };
-}
-
 function serializeReceipt(receipt) {
   return {
     id: receipt.id,
