@@ -31,6 +31,7 @@
     "src/services/people-api.service.ts",
     "src/services/rent-api.service.ts",
     "src/services/spending-aggregator.service.ts",
+    "src/services/notification.service.ts",
     "src/ui/dom-registry.ts",
     "src/ui/auth.view.ts",
     "src/ui/budget-ring.view.ts",
