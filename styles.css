@@ -1219,6 +1219,35 @@ input[type="number"] {
 .history-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
+}
+
+/* --- A receipt already attached to a bank transaction --------------------- */
+.history-linked-tag {
+  justify-self: start;
+  margin-top: 3px;
+  padding: 1px 7px;
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.history-card.is-linked {
+  border-color: var(--accent-border);
+}
+
+.history-linked-detail {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--well);
+  color: var(--ink-2);
+  font-size: 12px;
 }
 
 .btn-small {
@@ -2562,4 +2591,69 @@ input[type="number"] {
   .toast {
     max-width: 100%;
   }
+}
+
+/* ---------------- Transaction picker (link from History) ---------------- */
+/* One column rather than the receipt picker's card grid: these rows are text
+   with an amount, and a list keeps the amounts in a readable column. */
+.transaction-link-list {
+  display: grid;
+  gap: 6px;
+  max-height: 420px;
+  margin-bottom: 16px;
+  overflow-y: auto;
+}
+
+.transaction-link-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.transaction-link-item:hover {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+}
+
+.transaction-link-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.transaction-link-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.transaction-link-main > strong {
+  font-size: 0.95rem;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transaction-link-meta {
+  color: var(--ink-3);
+  font-size: 0.8rem;
+}
+
+.transaction-link-amount {
+  flex-shrink: 0;
+  min-width: 96px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  text-align: right;
 }

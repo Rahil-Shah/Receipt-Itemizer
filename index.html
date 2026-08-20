@@ -511,8 +511,35 @@
           <p>Select a receipt from your history to attach to this transaction as proof of payment.</p>
         </header>
         <div class="receipt-link-list" id="receiptLinkList"></div>
+        <div class="empty-state hidden" id="receiptLinkEmpty">
+          <strong>No saved receipts yet</strong>
+          <span>Scan a receipt first, or attach a photo straight from the transaction menu.</span>
+        </div>
         <div class="modal-actions">
           <button class="btn btn-secondary" id="receiptLinkCancelButton" type="button">Cancel</button>
+        </div>
+      </section>
+    </div>
+
+    <div
+      class="modal-backdrop hidden"
+      id="transactionLinkModal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="transactionLinkTitle"
+    >
+      <section class="modal-card modal-card-wide">
+        <header class="modal-heading">
+          <h2 id="transactionLinkTitle">Link receipt to a transaction</h2>
+          <p>Pick the bank transaction this receipt pays for. It will be marked as having a receipt.</p>
+        </header>
+        <div class="transaction-link-list" id="transactionLinkList"></div>
+        <div class="empty-state hidden" id="transactionLinkEmpty">
+          <strong>No transactions available</strong>
+          <span>Connect a bank, or every imported transaction already has a receipt.</span>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="transactionLinkCancelButton" type="button">Cancel</button>
         </div>
       </section>
     </div>

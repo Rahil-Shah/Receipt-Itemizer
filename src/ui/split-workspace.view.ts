@@ -368,6 +368,17 @@ namespace ReceiptRing.UI {
         meta.textContent = `${receipt.category} · ${when}`;
         heading.append(title, meta);
 
+        // Say on the collapsed card that this receipt is already accounted
+        // for against a bank transaction, so it is visible without opening it.
+        if (receipt.linkedTransaction) {
+          card.classList.add("is-linked");
+          const linked = document.createElement("span");
+          linked.className = "history-linked-tag";
+          linked.title = `Attached to ${receipt.linkedTransaction.description ?? "a bank transaction"}`;
+          linked.textContent = "Linked";
+          heading.append(linked);
+        }
+
         const total = document.createElement("b");
         total.className = "history-total";
         total.textContent = this.currencyFormatService.format(Number(receipt.total ?? 0));
@@ -441,15 +452,49 @@ namespace ReceiptRing.UI {
           body.append(peopleWrap);
         }
 
-        if (onDelete) {
+        const linked = receipt.linkedTransaction;
+        if (linked) {
+          const detail = document.createElement("div");
+          detail.className = "history-linked-detail";
+          const what = linked.description ?? "Bank transaction";
+          const when = new Date(`${linked.date}T00:00:00`).toLocaleDateString();
+          detail.textContent = `Attached to ${what} · ${when} · ${this.currencyFormatService.format(
+            linked.amount
+          )}`;
+          body.append(detail);
+        }
+
+        if (onDelete || onLinkTransaction || onUnlinkTransaction) {
           const actions = document.createElement("div");
           actions.className = "history-actions";
-          const deleteButton = document.createElement("button");
-          deleteButton.type = "button";
-          deleteButton.className = "btn btn-danger btn-small";
-          deleteButton.textContent = "Delete receipt";
-          deleteButton.addEventListener("click", () => onDelete(receipt));
-          actions.append(deleteButton);
+
+          // Linking from this side saves hunting for the receipt again from the
+          // budgeting tab once it is already saved and in front of you.
+          if (linked && onUnlinkTransaction) {
+            const unlink = document.createElement("button");
+            unlink.type = "button";
+            unlink.className = "btn btn-secondary btn-small";
+            unlink.textContent = "Unlink transaction";
+            unlink.addEventListener("click", () => onUnlinkTransaction(receipt));
+            actions.append(unlink);
+          } else if (!linked && onLinkTransaction) {
+            const link = document.createElement("button");
+            link.type = "button";
+            link.className = "btn btn-secondary btn-small";
+            link.textContent = "Link to transaction";
+            link.addEventListener("click", () => onLinkTransaction(receipt));
+            actions.append(link);
+          }
+
+          if (onDelete) {
+            const deleteButton = document.createElement("button");
+            deleteButton.type = "button";
+            deleteButton.className = "btn btn-danger btn-small";
+            deleteButton.textContent = "Delete receipt";
+            deleteButton.addEventListener("click", () => onDelete(receipt));
+            actions.append(deleteButton);
+          }
+
           body.append(actions);
         }
 

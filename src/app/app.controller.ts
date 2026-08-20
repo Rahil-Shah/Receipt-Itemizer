@@ -44,6 +44,8 @@ namespace ReceiptRing.App {
     // already been counted as rent says so and offers to undo it.
     private rentEntryByTransaction = new Map<string, string>();
     private linkingTransactionId: string | null = null;
+    // The receipt awaiting a transaction, when linking from the History tab.
+    private linkingReceiptId: string | null = null;
     private attachingTransactionId: string | null = null;
 
     constructor(
@@ -147,6 +149,9 @@ namespace ReceiptRing.App {
       });
 
       this.elements.receiptLinkCancelButton.addEventListener("click", () => this.closeReceiptLinkModal());
+      this.elements.transactionLinkCancelButton.addEventListener("click", () =>
+        this.closeTransactionLinkModal()
+      );
       this.elements.receiptLinkList.addEventListener("click", (event) => {
         const target = event.target as HTMLElement;
         const button = target.closest(".receipt-link-item");
@@ -787,12 +792,17 @@ namespace ReceiptRing.App {
     private async loadHistory(): Promise<void> {
       try {
         const receipts = await this.receiptApiService.list();
+        // Kept so the budgeting view's "Receipt · <store>" tags can name a
+        // receipt without refetching.
+        this.receipts = receipts;
         this.elements.historyEmpty.classList.toggle("hidden", receipts.length > 0);
         this.splitWorkspaceView.renderHistory(
           this.elements.historyList,
           receipts,
           (receipt) => void this.deleteReceipt(receipt),
-          (receiptId, lineId, isFood) => void this.updateLineFood(receiptId, lineId, isFood)
+          (receiptId, lineId, isFood) => void this.updateLineFood(receiptId, lineId, isFood),
+          (receipt) => this.openTransactionLinkModal(receipt.id),
+          (receipt) => void this.unlinkReceiptFromHistory(receipt)
         );
       } catch (error) {
         this.elements.historyEmpty.classList.remove("hidden");
@@ -1733,6 +1743,104 @@ namespace ReceiptRing.App {
           list.append(msg);
         }
       })();
+    }
+
+    // --- Linking from the History side -------------------------------------
+    // The transaction menu can already pick a receipt; this is the same link
+    // made from the other end, for when you are looking at the receipt.
+
+    private openTransactionLinkModal(receiptId: string): void {
+      this.linkingReceiptId = receiptId;
+      this.elements.transactionLinkEmpty.classList.add("hidden");
+      this.renderTransactionLinkList();
+      this.elements.transactionLinkModal.classList.remove("hidden");
+    }
+
+    private closeTransactionLinkModal(): void {
+      this.linkingReceiptId = null;
+      this.elements.transactionLinkModal.classList.add("hidden");
+    }
+
+    private renderTransactionLinkList(): void {
+      const list = this.elements.transactionLinkList;
+      list.replaceChildren();
+
+      void (async () => {
+        try {
+          const transactions = await this.bankApiService.listTransactions();
+          this.bankTransactions = transactions;
+
+          // A transaction can hold one receipt, so anything already spoken for
+          // would only fail on submit. Outflows first: a receipt pays for
+          // something, so a refund or a Zelle credit is rarely the match.
+          const available = transactions
+            .filter((txn) => !txn.linkedReceiptId)
+            .sort((a, b) => (a.date < b.date ? 1 : -1));
+
+          if (available.length === 0) {
+            this.elements.transactionLinkEmpty.classList.remove("hidden");
+            return;
+          }
+
+          available.slice(0, 100).forEach((txn) => {
+            const card = document.createElement("button");
+            card.className = "transaction-link-item";
+            card.type = "button";
+
+            const main = document.createElement("div");
+            main.className = "transaction-link-main";
+
+            const desc = document.createElement("strong");
+            desc.textContent = txn.description ?? "Transaction";
+
+            const meta = document.createElement("span");
+            meta.className = "transaction-link-meta";
+            const when = this.formatTransactionDate(txn.date);
+            meta.textContent = txn.category ? `${when} · ${txn.category}` : when;
+
+            main.append(desc, meta);
+
+            const amount = document.createElement("span");
+            amount.className = "transaction-link-amount";
+            amount.textContent = this.currencyFormatService.format(txn.amount);
+
+            card.append(main, amount);
+            card.addEventListener("click", () => void this.selectTransactionForLink(txn.id));
+            list.append(card);
+          });
+        } catch (error) {
+          const msg = document.createElement("p");
+          msg.className = "assign-hint";
+          msg.textContent =
+            error instanceof Error ? error.message : "Could not load transactions.";
+          list.append(msg);
+        }
+      })();
+    }
+
+    private async selectTransactionForLink(transactionId: string): Promise<void> {
+      const receiptId = this.linkingReceiptId;
+      if (!receiptId) return;
+
+      if (await this.linkReceiptToTransaction(receiptId, transactionId)) {
+        this.closeTransactionLinkModal();
+        await this.loadHistory();
+      }
+    }
+
+    private async unlinkReceiptFromHistory(
+      receipt: Services.SavedReceiptSummary
+    ): Promise<void> {
+      try {
+        await this.receiptApiService.unlinkTransactionFromReceipt(receipt.id);
+        const transactionId = receipt.linkedTransaction?.id;
+        if (transactionId) this.applyReceiptLink(transactionId, null);
+        this.notificationService.success("Receipt unlinked from its transaction.");
+        await this.loadHistory();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not unlink receipt.";
+        this.notificationService.error(message);
+      }
     }
 
     private async selectReceiptForLink(receiptId: string): Promise<void> {

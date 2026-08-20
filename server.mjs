@@ -117,13 +117,32 @@ function serializeReceipt(receipt) {
     // The photo itself is fetched separately (GET /api/receipts/:id/image) so
     // the history list stays small; this only says whether there is one.
     hasImage: Boolean(receipt.imageMimeType),
-    people: receipt.people.map((person) => ({ id: person.accountPersonId, name: person.accountPerson.name })),
+    // The bank transaction this receipt is attached to, if any. History needs
+    // it to show that a receipt is already accounted for and to offer the
+    // link/unlink action without first loading the whole transaction list.
+    linkedTransaction: receipt.linkedTransaction
+      ? {
+          id: receipt.linkedTransaction.id,
+          description: receipt.linkedTransaction.description,
+          date: receipt.linkedTransaction.date.toISOString().slice(0, 10),
+          amount: toNumber(receipt.linkedTransaction.amount)
+        }
+      : null,
+    people: receipt.people.map((person) => ({
+      id: person.accountPersonId,
+      name: person.accountPerson.name,
+      isSelf: person.accountPerson.isSelf ?? false
+    })),
     lines: receipt.lines.map((line) => ({
       id: line.id,
       label: line.label,
       amount: toNumber(line.amount),
+      ignored: line.ignored ?? false,
       isFood: line.isFood ?? false,
       assignments: line.assignments.map((assignment) => ({
+        // The account-level id, matching the ids in `people` above, so a caller
+        // can re-run the split without matching people by display name.
+        personId: assignment.person?.accountPersonId ?? "",
         personName: assignment.person?.accountPerson?.name ?? "",
         mode: assignment.mode,
         value: toNumber(assignment.value)
@@ -136,6 +155,7 @@ const receiptInclude = {
   people: {
     include: { accountPerson: true }
   },
+  linkedTransaction: true,
   lines: {
     orderBy: { sortOrder: "asc" },
     include: { assignments: { include: { person: { include: { accountPerson: true } } } } }

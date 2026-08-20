@@ -42,8 +42,17 @@ namespace ReceiptRing.Services {
     id: string;
     label: string;
     amount: number;
+    ignored?: boolean;
     isFood?: boolean;
     assignments: SavedReceiptLineAssignment[];
+  }
+
+  /** The bank transaction a saved receipt is attached to, if any. */
+  export interface LinkedTransactionSummary {
+    id: string;
+    description: string | null;
+    date: string;
+    amount: number;
   }
 
   export interface SavedReceiptSummary {
@@ -57,7 +66,8 @@ namespace ReceiptRing.Services {
     // Whether a photo was stored with this receipt. The image itself is loaded
     // on demand from imageUrl(), never inlined in the history payload.
     hasImage: boolean;
-    people: { id: string; name: string }[];
+    linkedTransaction: LinkedTransactionSummary | null;
+    people: { id: string; name: string; isSelf?: boolean }[];
     lines: SavedReceiptLineSummary[];
   }
 

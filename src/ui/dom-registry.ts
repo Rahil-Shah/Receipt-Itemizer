@@ -93,6 +93,10 @@ namespace ReceiptRing.UI {
     receiptLinkList: HTMLElement;
     receiptLinkEmpty: HTMLElement;
     receiptLinkCancelButton: HTMLButtonElement;
+    transactionLinkModal: HTMLElement;
+    transactionLinkList: HTMLElement;
+    transactionLinkEmpty: HTMLElement;
+    transactionLinkCancelButton: HTMLButtonElement;
     educationFoodTotal: HTMLElement;
     educationRentTotal: HTMLElement;
     educationExpensesTotal: HTMLElement;
@@ -205,6 +209,10 @@ namespace ReceiptRing.UI {
         receiptLinkList: this.getElement("#receiptLinkList", HTMLElement),
         receiptLinkEmpty: this.getElement("#receiptLinkEmpty", HTMLElement),
         receiptLinkCancelButton: this.getElement("#receiptLinkCancelButton", HTMLButtonElement),
+        transactionLinkModal: this.getElement("#transactionLinkModal", HTMLElement),
+        transactionLinkList: this.getElement("#transactionLinkList", HTMLElement),
+        transactionLinkEmpty: this.getElement("#transactionLinkEmpty", HTMLElement),
+        transactionLinkCancelButton: this.getElement("#transactionLinkCancelButton", HTMLButtonElement),
         educationFoodTotal: this.getElement("#educationFoodTotal", HTMLElement),
         educationRentTotal: this.getElement("#educationRentTotal", HTMLElement),
         educationExpensesTotal: this.getElement("#educationExpensesTotal", HTMLElement),
