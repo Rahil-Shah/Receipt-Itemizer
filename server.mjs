@@ -104,6 +104,15 @@ registerGemini(app, requireAuth, prisma);
 
 const toNumber = (value) => (value === null || value === undefined ? null : Number(value));
 
+function parseMonthParam(value) {
+  const match = /^(\d{4})-(\d{2})$/.exec(String(value));
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (year < 2000 || year > 2100 || month < 1 || month > 12) return null;
+  return { year, month };
+}
+
 function serializeReceipt(receipt) {
   return {
     id: receipt.id,
@@ -118,8 +127,10 @@ function serializeReceipt(receipt) {
     hasImage: Boolean(receipt.imageMimeType),
     people: receipt.people.map((person) => ({ id: person.accountPersonId, name: person.accountPerson.name })),
     lines: receipt.lines.map((line) => ({
+      id: line.id,
       label: line.label,
       amount: toNumber(line.amount),
+      isFood: line.isFood ?? false,
       assignments: line.assignments.map((assignment) => ({
         personName: assignment.person?.accountPerson?.name ?? "",
         mode: assignment.mode,
@@ -157,7 +168,7 @@ const ASSIGNMENT_MODES = new Set(["equal", "percentage", "amount"]);
 // (see ReceiptImageService), so anything beyond ~8mb of base64 (~6mb of image)
 // is well past a legible receipt photo and gets rejected rather than stored.
 const MAX_IMAGE_CHARS = 8 * 1024 * 1024;
-const IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
 const IMAGE_DATA_URL_RE = /^data:([a-z]+\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/;
 
 // Splits a data: URL into the pieces the columns hold, or returns null when it
@@ -776,7 +787,7 @@ app.post("/api/rent-entries", requireAuth, async (req, res) => {
 
   const photo = photoDataUrl ? parseImageDataUrl(photoDataUrl) : null;
   if (photoDataUrl && !photo) {
-    return res.status(400).json({ error: "photoDataUrl must be a base64 JPEG, PNG, or WebP data URL." });
+    return res.status(400).json({ error: "photoDataUrl must be a base64 JPEG, PNG, WebP, or PDF data URL." });
   }
   if (photoDataUrl && photoDataUrl.length > MAX_IMAGE_CHARS) {
     return res.status(400).json({ error: "The photo is too large." });
@@ -883,7 +894,7 @@ app.patch("/api/rent-entries/:entryId", requireAuth, async (req, res) => {
     if (body.photoDataUrl !== undefined && body.photoDataUrl !== null) {
       const photo = parseImageDataUrl(body.photoDataUrl);
       if (!photo) {
-        return res.status(400).json({ error: "photoDataUrl must be a base64 JPEG, PNG, or WebP data URL." });
+        return res.status(400).json({ error: "photoDataUrl must be a base64 JPEG, PNG, WebP, or PDF data URL." });
       }
       if (body.photoDataUrl.length > MAX_IMAGE_CHARS) {
         return res.status(400).json({ error: "The photo is too large." });
