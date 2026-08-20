@@ -2,6 +2,9 @@ namespace ReceiptRing.Services {
   export interface AccountPerson {
     id: string;
     name: string;
+    // The account owner's own entry. Exactly one exists per user; the server
+    // creates it on demand and refuses to delete it.
+    isSelf?: boolean;
   }
 
   export class PeopleApiService {

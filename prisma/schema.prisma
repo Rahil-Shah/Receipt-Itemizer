@@ -165,12 +165,17 @@ model AccountPerson {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name      String   @db.VarChar(200)
+  // The account owner's own entry, so a receipt can be split with themselves as
+  // one of the participants and only their share counts toward their budget.
+  // Exactly one per user, created on demand and not deletable.
+  isSelf    Boolean  @default(false)
   people    Person[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([userId, name])
   @@index([userId])
+  @@index([userId, isSelf])
   @@map("account_people")
 }
 

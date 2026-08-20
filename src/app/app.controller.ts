@@ -179,6 +179,21 @@ namespace ReceiptRing.App {
       });
 
       this.elements.dropzone.addEventListener("drop", (event) => this.handleImageDrop(event));
+      this.bindEducationSectionToggles();
+    }
+
+    // The collapse chevrons in the budgeting view were markup only -- nothing
+    // ever listened to them, so aria-expanded stayed "true" for the life of the
+    // page and clicking one did nothing.
+    private bindEducationSectionToggles(): void {
+      document.querySelectorAll<HTMLButtonElement>(".section-toggle").forEach((toggle) => {
+        toggle.addEventListener("click", () => {
+          const section = toggle.closest<HTMLElement>(".education-section");
+          if (!section) return;
+          const collapsed = section.classList.toggle("is-collapsed");
+          toggle.setAttribute("aria-expanded", String(!collapsed));
+        });
+      });
     }
 
     private switchTab(tab: TabName): void {
@@ -761,7 +776,16 @@ namespace ReceiptRing.App {
         subtotal,
         tax,
         total: subtotal + tax,
-        people: this.people.map((person) => ({ clientId: person.id })),
+        // Only the people who actually ended up with a share. Attaching the
+        // whole address book to every receipt made "People:" meaningless in
+        // history, and now that the owner's own entry is in that list it would
+        // also mark every receipt as split-with-me and drop the budget for it
+        // to a share of zero.
+        people: this.people
+          .filter((person) =>
+            this.assignments.some((assignment) => assignment.personId === person.id)
+          )
+          .map((person) => ({ clientId: person.id })),
         lines: this.receiptLines.map((line) => ({
           clientId: line.id,
           label: line.label,
@@ -951,6 +975,7 @@ namespace ReceiptRing.App {
       this.monthlySpend = this.spendingAggregatorService.aggregate(
         this.receipts,
         this.bankTransactions,
+        this.getSelfShares()
       );
       await this.refreshRentMonths();
       this.populateMonths();
@@ -960,6 +985,68 @@ namespace ReceiptRing.App {
       this.renderTransactions();
       this.renderTrend();
       this.renderRing();
+    }
+
+    /**
+     * How much of each saved receipt is actually the account owner's, for the
+     * receipts they split with themselves included as a participant.
+     *
+     * Paying the whole bill at the till does not make the whole bill your
+     * spending, so a receipt that names you as one of its people contributes
+     * only your share to the ring and the trend. Receipts with no split, or
+     * with a split you are not part of, are left out of the map entirely and
+     * keep counting in full.
+     */
+    private getSelfShares(): Map<string, number> {
+      const shares = new Map<string, number>();
+
+      for (const receipt of this.receipts) {
+        const self = receipt.people.find((person) => person.isSelf);
+        if (!self) continue;
+
+        const lines: Domain.ReceiptLine[] = receipt.lines.map((line) => ({
+          id: line.id,
+          label: line.label,
+          amount: Number(line.amount) || 0,
+          confidence: 1,
+          ignored: line.ignored ?? false,
+          isFood: line.isFood ?? false
+        }));
+
+        const assignments: Domain.LineAssignment[] = [];
+        for (const line of receipt.lines) {
+          for (const assignment of line.assignments) {
+            if (!assignment.personId) continue;
+            assignments.push({
+              id: `${line.id}:${assignment.personId}`,
+              lineId: line.id,
+              personId: assignment.personId,
+              mode: (assignment.mode as Domain.AssignmentMode) ?? "equal",
+              value: Number(assignment.value) || 0
+            });
+          }
+        }
+
+        // Nothing was actually divided up, so the whole receipt is still theirs.
+        if (assignments.length === 0) continue;
+
+        const people: Domain.SplitPerson[] = receipt.people.map((person) => ({
+          id: person.id,
+          name: person.name,
+          isSelf: person.isSelf
+        }));
+
+        const summary = this.splitCalculatorService.calculate(
+          people,
+          lines,
+          assignments,
+          Number(receipt.tax) || 0
+        );
+        const mine = summary.totals.find((total) => total.personId === self.id);
+        if (mine) shares.set(receipt.id, mine.finalTotal);
+      }
+
+      return shares;
     }
 
     // Months come from receipts and bank activity plus any months that only
@@ -1447,6 +1534,7 @@ namespace ReceiptRing.App {
       this.monthlySpend = this.spendingAggregatorService.aggregate(
         this.receipts,
         this.bankTransactions,
+        this.getSelfShares()
       );
       this.renderTrend();
       this.renderRing();
@@ -1895,6 +1983,10 @@ namespace ReceiptRing.App {
         const appendFoodRow = (labelText: string, sourceText: string, amountValue: number): void => {
           const row = document.createElement("div");
           row.className = "food-item-row";
+          // A food-flagged inflow is a reimbursement (a friend paying their
+          // share back), so it offsets the total rather than adding to it.
+          // Tinted differently so a negative row reads as a credit, not a typo.
+          row.classList.toggle("is-credit", amountValue < 0);
 
           const label = document.createElement("span");
           label.className = "food-item-label";

@@ -33,6 +33,8 @@ namespace ReceiptRing.Services {
   }
 
   export interface SavedReceiptLineAssignment {
+    // Account-level person id, matching SavedReceiptSummary.people[].id.
+    personId: string;
     personName: string;
     mode: string;
     value: number;

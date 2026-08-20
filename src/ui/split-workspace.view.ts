@@ -219,17 +219,28 @@ namespace ReceiptRing.UI {
       people.forEach((person) => {
         const row = document.createElement("div");
         row.className = "person-chip";
+        row.classList.toggle("is-self", Boolean(person.isSelf));
 
         const label = document.createElement("span");
         label.textContent = person.name;
+        row.append(label);
 
-        const remove = document.createElement("button");
-        remove.type = "button";
-        remove.textContent = "x";
-        remove.setAttribute("aria-label", `Remove ${person.name}`);
-        remove.addEventListener("click", () => handlers.onPersonDelete(person.id));
+        // The account owner's own entry: assignable like anyone else, but the
+        // server will not delete it, so no remove button is offered.
+        if (person.isSelf) {
+          const you = document.createElement("span");
+          you.className = "person-chip-you";
+          you.textContent = "You";
+          row.append(you);
+        } else {
+          const remove = document.createElement("button");
+          remove.type = "button";
+          remove.textContent = "x";
+          remove.setAttribute("aria-label", `Remove ${person.name}`);
+          remove.addEventListener("click", () => handlers.onPersonDelete(person.id));
+          row.append(remove);
+        }
 
-        row.append(label, remove);
         container.append(row);
       });
     }

@@ -49,9 +49,17 @@ namespace ReceiptRing.Services {
       }
     }
 
+    /**
+     * @param receiptAmounts Overrides the amount a given receipt contributes,
+     *   keyed by receipt id. Used when the account owner is one of the people a
+     *   receipt was split between: their budget should show their share of the
+     *   bill, not the whole thing they happened to pay at the till. Receipts
+     *   absent from the map fall back to their full total.
+     */
     aggregate(
       receipts: readonly SavedReceiptSummary[],
-      transactions: readonly BankTransaction[]
+      transactions: readonly BankTransaction[],
+      receiptAmounts?: ReadonlyMap<string, number>
     ): MonthlySpend[] {
       const byMonth = new Map<string, Map<string, number>>();
 
@@ -65,8 +73,20 @@ namespace ReceiptRing.Services {
         byMonth.set(month, bucket);
       };
 
+      // A receipt attached to a bank transaction is a picture of that same
+      // purchase, not a second one. Counting both put a $40 dinner into the
+      // ring as $80 the moment its photo was attached, so let the transaction
+      // stand for the spend and skip the receipt.
+      const attachedReceiptIds = new Set(
+        transactions
+          .map((txn) => txn.linkedReceiptId)
+          .filter((id): id is string => typeof id === "string" && id.length > 0)
+      );
+
       for (const receipt of receipts) {
-        add(receipt.createdAt, receipt.category, receipt.total ?? 0);
+        if (attachedReceiptIds.has(receipt.id)) continue;
+        const override = receiptAmounts?.get(receipt.id);
+        add(receipt.createdAt, receipt.category, override ?? receipt.total ?? 0);
       }
       for (const txn of transactions) {
         // Amounts are normalized to negative-for-outflows on ingest (see

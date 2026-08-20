@@ -922,6 +922,26 @@ input[type="number"] {
   color: var(--red);
 }
 
+/* The account owner's own chip. Accented so it is obvious which share of the
+   split is the one that lands in your own budget. */
+.person-chip.is-self {
+  padding-right: 5px;
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.person-chip-you {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .people-hint {
   margin: 0;
   line-height: 1.5;

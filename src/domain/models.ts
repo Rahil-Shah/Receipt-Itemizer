@@ -55,6 +55,7 @@ namespace ReceiptRing.Domain {
   export interface SplitPerson {
     id: string;
     name: string;
+    isSelf?: boolean;
   }
 
   export type AssignmentMode = "equal" | "percentage" | "amount";
