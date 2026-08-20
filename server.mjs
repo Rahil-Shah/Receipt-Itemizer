@@ -242,7 +242,7 @@ function validateReceiptPayload(body) {
     }
     // One share per person per line — matches the unique constraint, so a
     // repeated pair answers 400 rather than tripping a database error.
-    const pair = `${assignment.lineClientId} ${assignment.personClientId}`;
+    const pair = `${assignment.lineClientId}\u0000${assignment.personClientId}`;
     if (seenPairs.has(pair)) return "A line cannot be assigned to the same person twice.";
     seenPairs.add(pair);
   }
