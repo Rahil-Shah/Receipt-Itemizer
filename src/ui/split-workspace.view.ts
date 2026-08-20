@@ -252,6 +252,10 @@ namespace ReceiptRing.UI {
       // then on every person's row so the column reads consistently -- including
       // the people who owe nothing toward it.
       const anyFood = summary.totals.some((total) => total.foodTotal > 0);
+      // The food figure carries its share of the tax, so next to a Tax line of
+      // its own it would otherwise read as if the two were being counted twice.
+      const anyTax = summary.totals.some((total) => total.allocatedTax !== 0);
+      const foodLabel = anyTax ? "Food (incl. tax)" : "Food";
 
       summary.totals.forEach((total) => {
         const row = document.createElement("div");
@@ -272,7 +276,7 @@ namespace ReceiptRing.UI {
         if (anyFood) {
           const food = document.createElement("span");
           food.className = "is-food-line";
-          food.textContent = `Food ${this.currencyFormatService.format(total.foodTotal)}`;
+          food.textContent = `${foodLabel} ${this.currencyFormatService.format(total.foodTotal)}`;
           row.append(food);
         }
         row.append(tax, final);

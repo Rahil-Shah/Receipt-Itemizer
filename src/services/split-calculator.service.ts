@@ -36,9 +36,8 @@ namespace ReceiptRing.Services {
             itemCents.set(personId, (itemCents.get(personId) ?? 0) + cents);
             // Food is the same share of the same line, so it is taken from the
             // one `shares` map rather than recomputed: two code paths could
-            // round apart and claim someone's food exceeded their items. Tax is
-            // spread proportionally over whole item totals, so no cent of it
-            // belongs to the food lines in particular — food stays items-only.
+            // round apart and claim someone's food exceeded their items. This
+            // is the pre-tax figure; tax is apportioned onto it below.
             if (line.isFood) {
               foodCents.set(personId, (foodCents.get(personId) ?? 0) + cents);
             }
@@ -61,11 +60,24 @@ namespace ReceiptRing.Services {
         const itemTotal = weights[index];
         const allocatedTax = taxShares[index];
         assignedCents += itemTotal + allocatedTax;
+
+        // Tax follows the items it was charged on. This person's tax is split
+        // between their food and non-food items in the same proportion, so the
+        // food figure is what the food actually cost them at the till rather
+        // than a pre-tax subtotal. Reusing distributeProportionally means the
+        // food and non-food halves sum back to allocatedTax exactly, so no cent
+        // of tax is invented or dropped on the way in.
+        const foodItems = foodCents.get(person.id) ?? 0;
+        const [foodTax] = this.distributeProportionally(allocatedTax, [
+          foodItems,
+          itemTotal - foodItems
+        ]);
+
         return {
           personId: person.id,
           personName: person.name,
           itemTotal: this.toAmount(itemTotal),
-          foodTotal: this.toAmount(foodCents.get(person.id) ?? 0),
+          foodTotal: this.toAmount(foodItems + foodTax),
           allocatedTax: this.toAmount(allocatedTax),
           finalTotal: this.toAmount(itemTotal + allocatedTax)
         };

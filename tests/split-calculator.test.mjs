@@ -107,7 +107,7 @@ test("ignored lines are excluded from the split", () => {
   assert.equal(p1.finalTotal, 10);
 });
 
-test("food total is each person's share of the food lines only", () => {
+test("food total is each person's share of the food lines, before any tax", () => {
   const calculator = makeCalculator();
   const lines = [foodLine("l1", 30), line("l2", 15)];
   const assignments = [
@@ -124,7 +124,7 @@ test("food total is each person's share of the food lines only", () => {
   assert.equal(byId.get("p3").foodTotal, 10);
 });
 
-test("food total carries no tax", () => {
+test("an all-food receipt puts every cent of the tax in the food total", () => {
   const calculator = makeCalculator();
   const lines = [foodLine("l1", 30)];
   const assignments = [equalAssignment("l1", "p1")];
@@ -134,7 +134,54 @@ test("food total carries no tax", () => {
   const p1 = summary.totals.find((t) => t.personId === "p1");
   assert.equal(p1.allocatedTax, 6);
   assert.equal(p1.finalTotal, 36);
-  assert.equal(p1.foodTotal, 30);
+  // Nothing but food was bought, so the whole charge is a food expense.
+  assert.equal(p1.foodTotal, 36);
+});
+
+test("tax is apportioned between food and non-food items", () => {
+  const calculator = makeCalculator();
+  // p1 buys $30 of food and $10 of other things; $4 of tax on $40 of items.
+  const lines = [foodLine("l1", 30), line("l2", 10)];
+  const assignments = [equalAssignment("l1", "p1"), equalAssignment("l2", "p1")];
+
+  const summary = calculator.calculate(people, lines, assignments, 4);
+
+  const p1 = summary.totals.find((t) => t.personId === "p1");
+  assert.equal(p1.itemTotal, 40);
+  assert.equal(p1.allocatedTax, 4);
+  // Three quarters of the items were food, so three quarters of the tax is.
+  assert.equal(p1.foodTotal, 33);
+  assert.ok(p1.foodTotal <= p1.finalTotal);
+});
+
+test("a receipt with no food keeps tax out of the food total", () => {
+  const calculator = makeCalculator();
+  const lines = [line("l1", 20)];
+  const assignments = [equalAssignment("l1", "p1")];
+
+  const summary = calculator.calculate(people, lines, assignments, 5);
+
+  const p1 = summary.totals.find((t) => t.personId === "p1");
+  assert.equal(p1.allocatedTax, 5);
+  assert.equal(p1.foodTotal, 0);
+});
+
+test("apportioned food tax never invents or loses a cent", () => {
+  const calculator = makeCalculator();
+  // $10.01 of food against $10.00 of other items, with an odd tax, so the
+  // proportional split cannot land on whole cents by luck.
+  const lines = [foodLine("l1", 10.01), line("l2", 10)];
+  const assignments = [equalAssignment("l1", "p1"), equalAssignment("l2", "p1")];
+
+  const summary = calculator.calculate(people, lines, assignments, 3.33);
+
+  const p1 = summary.totals.find((t) => t.personId === "p1");
+  const foodTaxCents = cents(p1.foodTotal) - 1001;
+  const nonFoodTaxCents = cents(p1.allocatedTax) - foodTaxCents;
+  // The two halves of this person's tax must add back to all of it.
+  assert.equal(foodTaxCents + nonFoodTaxCents, cents(p1.allocatedTax));
+  assert.ok(foodTaxCents >= 0 && foodTaxCents <= cents(p1.allocatedTax));
+  assert.ok(cents(p1.foodTotal) <= cents(p1.finalTotal));
 });
 
 test("food total follows percentage shares", () => {
@@ -189,9 +236,10 @@ test("food shares of an uneven split sum back to the line exactly", () => {
 
   const foodCents = summary.totals.reduce((sum, t) => sum + cents(t.foodTotal), 0);
   assert.equal(foodCents, 1000);
-  // Nobody's food share may outrun the items it came from.
+  // Nobody's food share may outrun what they owe. With tax apportioned in, the
+  // bound is their final total rather than their items alone.
   for (const t of summary.totals) {
-    assert.ok(cents(t.foodTotal) <= cents(t.itemTotal));
+    assert.ok(cents(t.foodTotal) <= cents(t.finalTotal));
   }
 });
 

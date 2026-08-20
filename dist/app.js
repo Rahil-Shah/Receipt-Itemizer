@@ -495,11 +495,16 @@ var ReceiptRing;
                     const itemTotal = weights[index];
                     const allocatedTax = taxShares[index];
                     assignedCents += itemTotal + allocatedTax;
+                    const foodItems = foodCents.get(person.id) ?? 0;
+                    const [foodTax] = this.distributeProportionally(allocatedTax, [
+                        foodItems,
+                        itemTotal - foodItems
+                    ]);
                     return {
                         personId: person.id,
                         personName: person.name,
                         itemTotal: this.toAmount(itemTotal),
-                        foodTotal: this.toAmount(foodCents.get(person.id) ?? 0),
+                        foodTotal: this.toAmount(foodItems + foodTax),
                         allocatedTax: this.toAmount(allocatedTax),
                         finalTotal: this.toAmount(itemTotal + allocatedTax)
                     };
@@ -1801,6 +1806,8 @@ var ReceiptRing;
             renderTotals(container, summary) {
                 container.innerHTML = "";
                 const anyFood = summary.totals.some((total) => total.foodTotal > 0);
+                const anyTax = summary.totals.some((total) => total.allocatedTax !== 0);
+                const foodLabel = anyTax ? "Food (incl. tax)" : "Food";
                 summary.totals.forEach((total) => {
                     const row = document.createElement("div");
                     row.className = "split-total-row";
@@ -1816,7 +1823,7 @@ var ReceiptRing;
                     if (anyFood) {
                         const food = document.createElement("span");
                         food.className = "is-food-line";
-                        food.textContent = `Food ${this.currencyFormatService.format(total.foodTotal)}`;
+                        food.textContent = `${foodLabel} ${this.currencyFormatService.format(total.foodTotal)}`;
                         row.append(food);
                     }
                     row.append(tax, final);

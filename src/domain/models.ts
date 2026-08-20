@@ -72,8 +72,9 @@ namespace ReceiptRing.Domain {
     personId: string;
     personName: string;
     itemTotal: number;
-    // The slice of itemTotal that came from food-flagged lines. Item amounts
-    // only, so it is always <= itemTotal and never includes tax.
+    // What the food-flagged lines cost this person, including the share of
+    // their tax that was charged on those items. Bounded by finalTotal, not by
+    // itemTotal -- an all-food receipt puts every cent of their tax in here.
     foodTotal: number;
     allocatedTax: number;
     finalTotal: number;
