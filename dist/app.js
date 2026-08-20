@@ -461,11 +461,18 @@ var ReceiptRing;
         class SplitCalculatorService {
             calculate(people, lines, assignments, tax) {
                 const itemCents = new Map();
-                people.forEach((person) => itemCents.set(person.id, 0));
+                const foodCents = new Map();
+                people.forEach((person) => {
+                    itemCents.set(person.id, 0);
+                    foodCents.set(person.id, 0);
+                });
                 let unallocatedCents = 0;
+                const taxCents = this.toCents(tax);
+                let receiptCents = taxCents;
                 lines
                     .filter((line) => !line.ignored)
                     .forEach((line) => {
+                    receiptCents += this.toCents(line.amount);
                     const lineAssignments = assignments.filter((assignment) => assignment.lineId === line.id);
                     if (lineAssignments.length === 0)
                         return;
@@ -473,25 +480,37 @@ var ReceiptRing;
                     let allocated = 0;
                     shares.forEach((cents, personId) => {
                         itemCents.set(personId, (itemCents.get(personId) ?? 0) + cents);
+                        if (line.isFood) {
+                            foodCents.set(personId, (foodCents.get(personId) ?? 0) + cents);
+                        }
                         allocated += cents;
                     });
                     unallocatedCents += this.toCents(line.amount) - allocated;
                 });
                 const orderedPeople = [...people];
                 const weights = orderedPeople.map((person) => itemCents.get(person.id) ?? 0);
-                const taxShares = this.distributeProportionally(this.toCents(tax), weights);
+                const taxShares = this.distributeProportionally(taxCents, weights);
+                let assignedCents = 0;
                 const totals = orderedPeople.map((person, index) => {
                     const itemTotal = weights[index];
                     const allocatedTax = taxShares[index];
+                    assignedCents += itemTotal + allocatedTax;
                     return {
                         personId: person.id,
                         personName: person.name,
                         itemTotal: this.toAmount(itemTotal),
+                        foodTotal: this.toAmount(foodCents.get(person.id) ?? 0),
                         allocatedTax: this.toAmount(allocatedTax),
                         finalTotal: this.toAmount(itemTotal + allocatedTax)
                     };
                 });
-                return { totals, unallocated: this.toAmount(unallocatedCents) };
+                return {
+                    totals,
+                    unallocated: this.toAmount(unallocatedCents),
+                    receiptTotal: this.toAmount(receiptCents),
+                    assignedTotal: this.toAmount(assignedCents),
+                    isBalanced: receiptCents === assignedCents
+                };
             }
             getUnassignedCount(lines, assignments) {
                 return lines.filter((line) => !line.ignored && !assignments.some((assignment) => assignment.lineId === line.id)).length;
@@ -947,6 +966,15 @@ var ReceiptRing;
                     throw new Error(await this.parseError(response));
                 return (await response.json());
             }
+            async updateTransactionFood(id, isFood) {
+                const response = await this.request(`/api/bank-transactions/${encodeURIComponent(id)}/food`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ isFood })
+                });
+                if (!response.ok)
+                    throw new Error(await this.parseError(response));
+            }
         }
         Services.BankApiService = BankApiService;
     })(Services = ReceiptRing.Services || (ReceiptRing.Services = {}));
@@ -999,7 +1027,33 @@ var ReceiptRing;
 (function (ReceiptRing) {
     var Services;
     (function (Services) {
+        function parseRentDateParts(date) {
+            const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.trim());
+            if (!match)
+                return null;
+            const year = Number(match[1]);
+            const month = Number(match[2]);
+            const day = Number(match[3]);
+            if (month < 1 || month > 12 || day < 1 || day > 31)
+                return null;
+            return { year, month };
+        }
+        Services.parseRentDateParts = parseRentDateParts;
+        function rentMonthKey(year, month) {
+            return `${year}-${String(month).padStart(2, "0")}`;
+        }
+        Services.rentMonthKey = rentMonthKey;
         class RentEntryApiService {
+            async parseError(response) {
+                try {
+                    const data = (await response.json());
+                    if (data.error)
+                        return data.error;
+                }
+                catch {
+                }
+                return `Request failed (${response.status}).`;
+            }
             async create(payload) {
                 const response = await fetch("/api/rent-entries", {
                     method: "POST",
@@ -1007,8 +1061,7 @@ var ReceiptRing;
                     body: JSON.stringify(payload)
                 });
                 if (!response.ok) {
-                    const message = await response.text();
-                    throw new Error(`Create failed (${response.status}): ${message}`);
+                    throw new Error(await this.parseError(response));
                 }
                 return (await response.json());
             }
@@ -1027,8 +1080,7 @@ var ReceiptRing;
                     body: JSON.stringify(updates)
                 });
                 if (!response.ok) {
-                    const message = await response.text();
-                    throw new Error(`Update failed (${response.status}): ${message}`);
+                    throw new Error(await this.parseError(response));
                 }
                 return (await response.json());
             }
@@ -1037,8 +1089,7 @@ var ReceiptRing;
                     method: "DELETE"
                 });
                 if (!response.ok) {
-                    const message = await response.text();
-                    throw new Error(`Delete failed (${response.status}): ${message}`);
+                    throw new Error(await this.parseError(response));
                 }
             }
             async getSummary(month) {
@@ -1091,7 +1142,7 @@ var ReceiptRing;
                     this.colorByName.set(category.name, category.color);
                 }
             }
-            aggregate(receipts, transactions) {
+            aggregate(receipts, transactions, receiptAmounts) {
                 const byMonth = new Map();
                 const add = (dateStr, rawCategory, amount) => {
                     if (!(amount > 0))
@@ -1104,8 +1155,14 @@ var ReceiptRing;
                     bucket.set(category, (bucket.get(category) ?? 0) + amount);
                     byMonth.set(month, bucket);
                 };
+                const attachedReceiptIds = new Set(transactions
+                    .map((txn) => txn.linkedReceiptId)
+                    .filter((id) => typeof id === "string" && id.length > 0));
                 for (const receipt of receipts) {
-                    add(receipt.createdAt, receipt.category, receipt.total ?? 0);
+                    if (attachedReceiptIds.has(receipt.id))
+                        continue;
+                    const override = receiptAmounts?.get(receipt.id);
+                    add(receipt.createdAt, receipt.category, override ?? receipt.total ?? 0);
                 }
                 for (const txn of transactions) {
                     add(txn.date, txn.category, txn.amount < 0 ? -txn.amount : 0);
@@ -1259,6 +1316,12 @@ var ReceiptRing;
                     removeKeyButton: this.getElement("#removeKeyButton", HTMLButtonElement),
                     closeSettingsButton: this.getElement("#closeSettingsButton", HTMLButtonElement),
                     saveSettingsButton: this.getElement("#saveSettingsButton", HTMLButtonElement),
+                    pasteJsonButton: this.getElement("#pasteJsonButton", HTMLButtonElement),
+                    pasteJsonModal: this.getElement("#pasteJsonModal", HTMLElement),
+                    pasteJsonText: this.getElement("#pasteJsonText", HTMLTextAreaElement),
+                    pasteJsonStatus: this.getElement("#pasteJsonStatus", HTMLElement),
+                    closePasteJsonButton: this.getElement("#closePasteJsonButton", HTMLButtonElement),
+                    importPasteJsonButton: this.getElement("#importPasteJsonButton", HTMLButtonElement),
                     authOverlay: this.getElement("#authOverlay", HTMLElement),
                     authForm: this.getElement("#authForm", HTMLFormElement),
                     authTitle: this.getElement("#authTitle", HTMLElement),
@@ -1280,6 +1343,7 @@ var ReceiptRing;
                     bankStatus: this.getElement("#bankStatus", HTMLElement),
                     bankConnections: this.getElement("#bankConnections", HTMLElement),
                     transactionsList: this.getElement("#transactionsList", HTMLElement),
+                    transactionReceiptFile: this.getElement("#transactionReceiptFile", HTMLInputElement),
                     transactionsEmpty: this.getElement("#transactionsEmpty", HTMLElement),
                     addRentEntryButton: this.getElement("#addRentEntryButton", HTMLButtonElement),
                     rentEntriesList: this.getElement("#rentEntriesList", HTMLElement),
@@ -1292,7 +1356,12 @@ var ReceiptRing;
                     rentEntrySaveButton: this.getElement("#rentEntrySaveButton", HTMLButtonElement),
                     receiptLinkModal: this.getElement("#receiptLinkModal", HTMLElement),
                     receiptLinkList: this.getElement("#receiptLinkList", HTMLElement),
+                    receiptLinkEmpty: this.getElement("#receiptLinkEmpty", HTMLElement),
                     receiptLinkCancelButton: this.getElement("#receiptLinkCancelButton", HTMLButtonElement),
+                    transactionLinkModal: this.getElement("#transactionLinkModal", HTMLElement),
+                    transactionLinkList: this.getElement("#transactionLinkList", HTMLElement),
+                    transactionLinkEmpty: this.getElement("#transactionLinkEmpty", HTMLElement),
+                    transactionLinkCancelButton: this.getElement("#transactionLinkCancelButton", HTMLButtonElement),
                     educationFoodTotal: this.getElement("#educationFoodTotal", HTMLElement),
                     educationRentTotal: this.getElement("#educationRentTotal", HTMLElement),
                     educationExpensesTotal: this.getElement("#educationExpensesTotal", HTMLElement),
@@ -1595,7 +1664,7 @@ var ReceiptRing;
                     foodCheck.type = "button";
                     foodCheck.setAttribute("aria-label", line.isFood ? "Mark as non-food" : "Mark as food");
                     foodCheck.setAttribute("aria-pressed", String(line.isFood ?? false));
-                    foodCheck.innerHTML = this.getFoodCheckIcon(line.isFood ?? false);
+                    foodCheck.innerHTML = SplitWorkspaceView.getFoodCheckIcon(line.isFood ?? false);
                     foodCheck.addEventListener("click", () => handlers.onLineFood(line.id, !(line.isFood ?? false)));
                     const assignCell = document.createElement("div");
                     assignCell.className = "assign-cell";
@@ -1614,6 +1683,7 @@ var ReceiptRing;
                     container.append(row);
                     if (openLineIds.has(line.id)) {
                         dropdown.open = true;
+                        this.anchorDropdown(dropdown);
                     }
                 });
             }
@@ -1632,6 +1702,11 @@ var ReceiptRing;
                 const reposition = () => {
                     if (!details.isConnected) {
                         this.teardownPanelPositioning(reposition);
+                        return;
+                    }
+                    const summaryRect = summary.getBoundingClientRect();
+                    if (summaryRect.bottom < 0 || summaryRect.top > window.innerHeight) {
+                        details.open = false;
                         return;
                     }
                     this.positionPanel(summary, panel);
@@ -1702,19 +1777,30 @@ var ReceiptRing;
                 people.forEach((person) => {
                     const row = document.createElement("div");
                     row.className = "person-chip";
+                    row.classList.toggle("is-self", Boolean(person.isSelf));
                     const label = document.createElement("span");
                     label.textContent = person.name;
-                    const remove = document.createElement("button");
-                    remove.type = "button";
-                    remove.textContent = "x";
-                    remove.setAttribute("aria-label", `Remove ${person.name}`);
-                    remove.addEventListener("click", () => handlers.onPersonDelete(person.id));
-                    row.append(label, remove);
+                    row.append(label);
+                    if (person.isSelf) {
+                        const you = document.createElement("span");
+                        you.className = "person-chip-you";
+                        you.textContent = "You";
+                        row.append(you);
+                    }
+                    else {
+                        const remove = document.createElement("button");
+                        remove.type = "button";
+                        remove.textContent = "x";
+                        remove.setAttribute("aria-label", `Remove ${person.name}`);
+                        remove.addEventListener("click", () => handlers.onPersonDelete(person.id));
+                        row.append(remove);
+                    }
                     container.append(row);
                 });
             }
             renderTotals(container, summary) {
                 container.innerHTML = "";
+                const anyFood = summary.totals.some((total) => total.foodTotal > 0);
                 summary.totals.forEach((total) => {
                     const row = document.createElement("div");
                     row.className = "split-total-row";
@@ -1726,7 +1812,14 @@ var ReceiptRing;
                     tax.textContent = `Tax ${this.currencyFormatService.format(total.allocatedTax)}`;
                     const final = document.createElement("b");
                     final.textContent = this.currencyFormatService.format(total.finalTotal);
-                    row.append(name, items, tax, final);
+                    row.append(name, items);
+                    if (anyFood) {
+                        const food = document.createElement("span");
+                        food.className = "is-food-line";
+                        food.textContent = `Food ${this.currencyFormatService.format(total.foodTotal)}`;
+                        row.append(food);
+                    }
+                    row.append(tax, final);
                     container.append(row);
                 });
                 if (Math.abs(summary.unallocated) >= 0.01) {
@@ -1742,8 +1835,43 @@ var ReceiptRing;
                     row.append(name, detail, spacer, value);
                     container.append(row);
                 }
+                if (summary.totals.length > 0) {
+                    container.append(this.buildReconciliation(summary));
+                }
             }
-            renderHistory(container, receipts, onDelete, onLineFood) {
+            buildReconciliation(summary) {
+                const block = document.createElement("div");
+                block.className = "split-reconcile";
+                block.classList.toggle("is-balanced", summary.isBalanced);
+                const addLine = (label, amount, variant = "") => {
+                    const line = document.createElement("div");
+                    line.className = variant ? `split-reconcile-line ${variant}` : "split-reconcile-line";
+                    const text = document.createElement("span");
+                    text.textContent = label;
+                    const value = document.createElement("b");
+                    value.textContent = this.currencyFormatService.format(amount);
+                    line.append(text, value);
+                    block.append(line);
+                };
+                addLine("Split across everyone", summary.assignedTotal);
+                addLine("Receipt total", summary.receiptTotal);
+                const status = document.createElement("div");
+                status.className = "split-reconcile-status";
+                if (summary.isBalanced) {
+                    status.textContent = "Balanced — the split matches the receipt.";
+                }
+                else {
+                    const gap = summary.receiptTotal - summary.assignedTotal;
+                    const amount = this.currencyFormatService.format(Math.abs(gap));
+                    status.textContent =
+                        gap > 0
+                            ? `${amount} of the receipt is not on anyone's tab yet.`
+                            : `The split is over the receipt total by ${amount}.`;
+                }
+                block.append(status);
+                return block;
+            }
+            renderHistory(container, receipts, onDelete, onLineFood, onLinkTransaction, onUnlinkTransaction) {
                 container.innerHTML = "";
                 receipts.forEach((receipt) => {
                     const card = document.createElement("details");
@@ -1766,6 +1894,14 @@ var ReceiptRing;
                     const when = new Date(receipt.createdAt).toLocaleDateString();
                     meta.textContent = `${receipt.category} · ${when}`;
                     heading.append(title, meta);
+                    if (receipt.linkedTransaction) {
+                        card.classList.add("is-linked");
+                        const linked = document.createElement("span");
+                        linked.className = "history-linked-tag";
+                        linked.title = `Attached to ${receipt.linkedTransaction.description ?? "a bank transaction"}`;
+                        linked.textContent = "Linked";
+                        heading.append(linked);
+                    }
                     const total = document.createElement("b");
                     total.className = "history-total";
                     total.textContent = this.currencyFormatService.format(Number(receipt.total ?? 0));
@@ -1803,7 +1939,7 @@ var ReceiptRing;
                             foodCheck.type = "button";
                             foodCheck.setAttribute("aria-label", line.isFood ? "Mark as non-food" : "Mark as food");
                             foodCheck.setAttribute("aria-pressed", String(line.isFood ?? false));
-                            foodCheck.innerHTML = this.getFoodCheckIcon(line.isFood ?? false);
+                            foodCheck.innerHTML = SplitWorkspaceView.getFoodCheckIcon(line.isFood ?? false);
                             if (onLineFood) {
                                 foodCheck.addEventListener("click", () => onLineFood(receipt.id, line.id, !(line.isFood ?? false)));
                             }
@@ -1826,20 +1962,53 @@ var ReceiptRing;
                         peopleWrap.textContent = `People: ${receipt.people.map((person) => person.name).join(", ")}`;
                         body.append(peopleWrap);
                     }
-                    if (onDelete) {
+                    const linked = receipt.linkedTransaction;
+                    if (linked) {
+                        const detail = document.createElement("div");
+                        detail.className = "history-linked-detail";
+                        const what = linked.description ?? "Bank transaction";
+                        const when = new Date(`${linked.date}T00:00:00`).toLocaleDateString();
+                        detail.textContent = `Attached to ${what} · ${when} · ${this.currencyFormatService.format(linked.amount)}`;
+                        body.append(detail);
+                    }
+                    if (onDelete || onLinkTransaction || onUnlinkTransaction) {
                         const actions = document.createElement("div");
                         actions.className = "history-actions";
-                        const deleteButton = document.createElement("button");
-                        deleteButton.type = "button";
-                        deleteButton.className = "btn btn-danger btn-small";
-                        deleteButton.textContent = "Delete receipt";
-                        deleteButton.addEventListener("click", () => onDelete(receipt));
-                        actions.append(deleteButton);
+                        if (linked && onUnlinkTransaction) {
+                            const unlink = document.createElement("button");
+                            unlink.type = "button";
+                            unlink.className = "btn btn-secondary btn-small";
+                            unlink.textContent = "Unlink transaction";
+                            unlink.addEventListener("click", () => onUnlinkTransaction(receipt));
+                            actions.append(unlink);
+                        }
+                        else if (!linked && onLinkTransaction) {
+                            const link = document.createElement("button");
+                            link.type = "button";
+                            link.className = "btn btn-secondary btn-small";
+                            link.textContent = "Link to transaction";
+                            link.addEventListener("click", () => onLinkTransaction(receipt));
+                            actions.append(link);
+                        }
+                        if (onDelete) {
+                            const deleteButton = document.createElement("button");
+                            deleteButton.type = "button";
+                            deleteButton.className = "btn btn-danger btn-small";
+                            deleteButton.textContent = "Delete receipt";
+                            deleteButton.addEventListener("click", () => onDelete(receipt));
+                            actions.append(deleteButton);
+                        }
                         body.append(actions);
                     }
                     card.append(body);
                     container.append(card);
                 });
+            }
+            anchorDropdown(details) {
+                const summary = details.querySelector("summary.assign-summary");
+                const panel = details.querySelector(".assign-panel-pop");
+                if (summary && panel)
+                    this.positionPanel(summary, panel);
             }
             positionPanel(summary, panel) {
                 const margin = 8;
@@ -1866,8 +2035,10 @@ var ReceiptRing;
                 panel.style.top = `${top}px`;
                 panel.style.left = `${left}px`;
                 panel.style.overflowY = "auto";
+                panel.classList.add("is-anchored");
             }
             resetPanelPosition(panel) {
+                panel.classList.remove("is-anchored");
                 panel.style.position = "";
                 panel.style.top = "";
                 panel.style.left = "";
@@ -1894,12 +2065,12 @@ var ReceiptRing;
                     .filter((name) => Boolean(name));
                 return names.length > 0 ? names.join(", ") : "Assign ▾";
             }
-            getFoodCheckIcon(isFood) {
-                const strokeWidth = isFood ? "0" : "1.6";
-                const fill = isFood ? "currentColor" : "none";
-                return `<svg viewBox="0 0 24 24" fill="${fill}" xmlns="http://www.w3.org/2000/svg" class="food-check-icon">
-        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="${strokeWidth}"/>
-      </svg>`;
+            static getFoodCheckIcon(isFood) {
+                const box = isFood
+                    ? `<rect x="3" y="3" width="18" height="18" rx="5" fill="currentColor"/>
+           <path d="m7.5 12.4 3 3 6-6.5" fill="none" stroke="var(--surface)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`
+                    : `<rect x="3.9" y="3.9" width="16.2" height="16.2" rx="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/>`;
+                return `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" class="food-check-icon" aria-hidden="true">${box}</svg>`;
             }
         }
         UI.SplitWorkspaceView = SplitWorkspaceView;
@@ -2040,9 +2211,9 @@ var ReceiptRing;
                     meta.className = "rent-entry-meta";
                     const photoIndicator = document.createElement("span");
                     photoIndicator.className = "rent-entry-photo-indicator";
-                    if (entry.photoUrl) {
+                    if (entry.hasPhoto) {
                         photoIndicator.textContent = "📎";
-                        photoIndicator.setAttribute("title", `Proof of payment attached (${entry.photoMimeType || "image"})`);
+                        photoIndicator.setAttribute("title", "Proof of payment attached");
                     }
                     meta.append(photoIndicator);
                     header.append(meta);
@@ -2091,17 +2262,15 @@ var ReceiptRing;
                 }
             }
             formatDate(dateString) {
-                try {
-                    const date = new Date(dateString);
-                    return date.toLocaleDateString(undefined, {
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric"
-                    });
-                }
-                catch {
+                const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateString);
+                if (!match)
                     return dateString;
-                }
+                const [, year, month, day] = match;
+                return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric"
+                });
             }
         }
         UI.RentEntriesView = RentEntriesView;
@@ -2111,6 +2280,11 @@ var ReceiptRing;
 (function (ReceiptRing) {
     var App;
     (function (App) {
+        const RECEIPT_TAG_ICON = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+      <path d="M6 3.5h12a1 1 0 0 1 1 1v15l-2.4-1.6-2.4 1.6-2.2-1.6-2.2 1.6-2.4-1.6L5 20.5v-16a1 1 0 0 1 1-1Z"
+        fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+      <path d="M8.6 8.2h6.8M8.6 11.6h6.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+    </svg>`;
         class AppController {
             constructor(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, receiptImageService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView, peopleApiService, rentEntryApiService, rentEntriesView, notificationService) {
                 this.elements = elements;
@@ -2152,9 +2326,13 @@ var ReceiptRing;
                 this.userHasGeminiKey = false;
                 this.receiptImage = null;
                 this.rentEntries = [];
+                this.rentMonths = new Set();
                 this.editingRentEntryId = null;
-                this.linkedReceipts = new Map();
+                this.receipts = [];
+                this.rentEntryByTransaction = new Map();
                 this.linkingTransactionId = null;
+                this.linkingReceiptId = null;
+                this.attachingTransactionId = null;
                 this.items = this.storageService.load();
             }
             start() {
@@ -2191,6 +2369,9 @@ var ReceiptRing;
                 this.elements.closeSettingsButton.addEventListener("click", () => this.closeSettings());
                 this.elements.saveSettingsButton.addEventListener("click", () => void this.saveSettings());
                 this.elements.removeKeyButton.addEventListener("click", () => void this.removeGeminiKey());
+                this.elements.pasteJsonButton.addEventListener("click", () => this.openPasteJsonModal());
+                this.elements.closePasteJsonButton.addEventListener("click", () => this.closePasteJsonModal());
+                this.elements.importPasteJsonButton.addEventListener("click", () => this.importPastedJson());
                 this.elements.saveReceiptButton.addEventListener("click", () => void this.saveReceipt());
                 this.elements.refreshHistoryButton.addEventListener("click", () => void this.loadHistory());
                 this.elements.connectBankButton.addEventListener("click", () => void this.connectBank());
@@ -2216,7 +2397,19 @@ var ReceiptRing;
                             void this.deleteRentEntry(entry);
                     }
                 });
+                this.elements.transactionReceiptFile.addEventListener("change", () => {
+                    const file = this.elements.transactionReceiptFile.files?.[0];
+                    if (file)
+                        void this.attachReceiptFile(file);
+                });
+                document.addEventListener("click", (event) => {
+                    const target = event.target;
+                    if (target instanceof Node && this.elements.transactionsList.contains(target))
+                        return;
+                    this.closeTransactionMenus();
+                });
                 this.elements.receiptLinkCancelButton.addEventListener("click", () => this.closeReceiptLinkModal());
+                this.elements.transactionLinkCancelButton.addEventListener("click", () => this.closeTransactionLinkModal());
                 this.elements.receiptLinkList.addEventListener("click", (event) => {
                     const target = event.target;
                     const button = target.closest(".receipt-link-item");
@@ -2240,6 +2433,18 @@ var ReceiptRing;
                     });
                 });
                 this.elements.dropzone.addEventListener("drop", (event) => this.handleImageDrop(event));
+                this.bindEducationSectionToggles();
+            }
+            bindEducationSectionToggles() {
+                document.querySelectorAll(".section-toggle").forEach((toggle) => {
+                    toggle.addEventListener("click", () => {
+                        const section = toggle.closest(".education-section");
+                        if (!section)
+                            return;
+                        const collapsed = section.classList.toggle("is-collapsed");
+                        toggle.setAttribute("aria-expanded", String(!collapsed));
+                    });
+                });
             }
             switchTab(tab) {
                 this.elements.tabButtons.forEach((button) => {
@@ -2347,46 +2552,7 @@ var ReceiptRing;
                 try {
                     const result = await this.geminiService.parseReceiptImage(file, model);
                     console.log("Gemini parsed receipt output:", result);
-                    const storeName = result.storeName || "";
-                    const subtotal = typeof result.subtotal === "number" ? result.subtotal : null;
-                    const tax = typeof result.tax === "number" ? result.tax : null;
-                    const total = typeof result.total === "number" ? result.total : null;
-                    this.elements.storeNameInput.value = storeName;
-                    this.elements.taxInput.value = String(tax ?? 0);
-                    let formattedText = `Store: ${storeName}\n\nItems:\n`;
-                    const purchaseItems = [];
-                    if (Array.isArray(result.items)) {
-                        result.items.forEach((item) => {
-                            const label = this.toTitleCase(item.name || "Unknown Item");
-                            const price = typeof item.price === "number" ? item.price : Number(item.price) || 0;
-                            const discount = typeof item.discount === "number" ? item.discount : Number(item.discount) || 0;
-                            const finalAmount = Math.max(0, price - discount);
-                            const lowConfidence = !!item.lowConfidence;
-                            let itemLabel = label;
-                            if (discount > 0.01) {
-                                itemLabel += ` (was $${price.toFixed(2)}, ${discount > 0 ? "-" : ""}$${Math.abs(discount).toFixed(2)} discount)`;
-                                formattedText += `- ${itemLabel}: $${finalAmount.toFixed(2)}${lowConfidence ? " (low confidence)" : ""}\n`;
-                            }
-                            else {
-                                formattedText += `- ${label}: $${finalAmount.toFixed(2)}${lowConfidence ? " (low confidence)" : ""}\n`;
-                            }
-                            const categorization = this.categorizationService.categorize(label);
-                            purchaseItems.push({
-                                id: this.idService.create(),
-                                label: itemLabel,
-                                amount: Number(finalAmount.toFixed(2)),
-                                category: categorization.category,
-                                categorizationConfidence: lowConfidence ? 0.3 : categorization.confidence,
-                                categorizationSource: categorization.source,
-                                needsCategoryReview: lowConfidence || categorization.shouldPrompt
-                            });
-                        });
-                    }
-                    formattedText += `\nSubtotal: $${(subtotal ?? 0).toFixed(2)}\nTax: $${(tax ?? 0).toFixed(2)}\nTotal: $${(total ?? 0).toFixed(2)}`;
-                    this.elements.receiptText.value = formattedText;
-                    this.setItemsFromParse(purchaseItems);
-                    this.setSaveStatus("");
-                    this.render();
+                    this.applyParsedReceiptJson(result);
                     this.setOcrStatus(`Found ${this.receiptLines.length} lines via Gemini`, 1);
                     window.setTimeout(() => this.hideOcrStatus(), 1600);
                 }
@@ -2398,6 +2564,86 @@ var ReceiptRing;
                 finally {
                     this.elements.parseButton.removeAttribute("disabled");
                 }
+            }
+            applyParsedReceiptJson(result) {
+                const storeName = result.storeName || "";
+                const subtotal = typeof result.subtotal === "number" ? result.subtotal : null;
+                const tax = typeof result.tax === "number" ? result.tax : null;
+                const total = typeof result.total === "number" ? result.total : null;
+                this.elements.storeNameInput.value = storeName;
+                this.elements.taxInput.value = String(tax ?? 0);
+                let formattedText = `Store: ${storeName}\n\nItems:\n`;
+                const purchaseItems = [];
+                if (Array.isArray(result.items)) {
+                    result.items.forEach((item) => {
+                        const label = this.toTitleCase(item.name || "Unknown Item");
+                        const price = typeof item.price === "number" ? item.price : Number(item.price) || 0;
+                        const discount = typeof item.discount === "number" ? item.discount : Number(item.discount) || 0;
+                        const finalAmount = Math.max(0, price - discount);
+                        const lowConfidence = !!item.lowConfidence;
+                        let itemLabel = label;
+                        if (discount > 0.01) {
+                            itemLabel += ` (was $${price.toFixed(2)}, ${discount > 0 ? "-" : ""}$${Math.abs(discount).toFixed(2)} discount)`;
+                            formattedText += `- ${itemLabel}: $${finalAmount.toFixed(2)}${lowConfidence ? " (low confidence)" : ""}\n`;
+                        }
+                        else {
+                            formattedText += `- ${label}: $${finalAmount.toFixed(2)}${lowConfidence ? " (low confidence)" : ""}\n`;
+                        }
+                        const categorization = this.categorizationService.categorize(label);
+                        purchaseItems.push({
+                            id: this.idService.create(),
+                            label: itemLabel,
+                            amount: Number(finalAmount.toFixed(2)),
+                            category: categorization.category,
+                            categorizationConfidence: lowConfidence ? 0.3 : categorization.confidence,
+                            categorizationSource: categorization.source,
+                            needsCategoryReview: lowConfidence || categorization.shouldPrompt
+                        });
+                    });
+                }
+                formattedText += `\nSubtotal: $${(subtotal ?? 0).toFixed(2)}\nTax: $${(tax ?? 0).toFixed(2)}\nTotal: $${(total ?? 0).toFixed(2)}`;
+                this.elements.receiptText.value = formattedText;
+                this.setItemsFromParse(purchaseItems);
+                this.setSaveStatus("");
+                this.render();
+            }
+            openPasteJsonModal() {
+                this.elements.pasteJsonText.value = "";
+                this.setPasteJsonStatus("");
+                this.elements.pasteJsonModal.classList.remove("hidden");
+            }
+            closePasteJsonModal() {
+                this.elements.pasteJsonModal.classList.add("hidden");
+            }
+            setPasteJsonStatus(message, isError = false) {
+                this.elements.pasteJsonStatus.textContent = message;
+                this.elements.pasteJsonStatus.classList.toggle("is-error", isError);
+                this.elements.pasteJsonStatus.classList.toggle("is-active", Boolean(message) && !isError);
+            }
+            importPastedJson() {
+                const raw = this.elements.pasteJsonText.value.trim();
+                if (!raw) {
+                    this.setPasteJsonStatus("Paste the JSON Gemini gave you first.", true);
+                    return;
+                }
+                let parsed;
+                try {
+                    const cleaned = raw.replace(/^```json\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "").trim();
+                    parsed = JSON.parse(cleaned);
+                }
+                catch (error) {
+                    const message = error instanceof Error ? error.message : "Invalid JSON.";
+                    this.setPasteJsonStatus(`Could not parse that as JSON: ${message}`, true);
+                    return;
+                }
+                if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.items)) {
+                    this.setPasteJsonStatus('That JSON needs an "items" array to import.', true);
+                    return;
+                }
+                this.applyParsedReceiptJson(parsed);
+                this.closePasteJsonModal();
+                this.setOcrStatus(`Found ${this.receiptLines.length} lines from pasted JSON`, 1);
+                window.setTimeout(() => this.hideOcrStatus(), 1600);
             }
             async initGeminiSettings() {
                 const config = await this.geminiService.loadConfig();
@@ -2673,7 +2919,9 @@ var ReceiptRing;
                     subtotal,
                     tax,
                     total: subtotal + tax,
-                    people: this.people.map((person) => ({ clientId: person.id })),
+                    people: this.people
+                        .filter((person) => this.assignments.some((assignment) => assignment.personId === person.id))
+                        .map((person) => ({ clientId: person.id })),
                     lines: this.receiptLines.map((line) => ({
                         clientId: line.id,
                         label: line.label,
@@ -2704,8 +2952,9 @@ var ReceiptRing;
             async loadHistory() {
                 try {
                     const receipts = await this.receiptApiService.list();
+                    this.receipts = receipts;
                     this.elements.historyEmpty.classList.toggle("hidden", receipts.length > 0);
-                    this.splitWorkspaceView.renderHistory(this.elements.historyList, receipts, (receipt) => void this.deleteReceipt(receipt), (receiptId, lineId, isFood) => void this.updateLineFood(receiptId, lineId, isFood));
+                    this.splitWorkspaceView.renderHistory(this.elements.historyList, receipts, (receipt) => void this.deleteReceipt(receipt), (receiptId, lineId, isFood) => void this.updateLineFood(receiptId, lineId, isFood), (receipt) => this.openTransactionLinkModal(receipt.id), (receipt) => void this.unlinkReceiptFromHistory(receipt));
                 }
                 catch (error) {
                     this.elements.historyEmpty.classList.remove("hidden");
@@ -2817,12 +3066,11 @@ var ReceiptRing;
                     catch {
                     }
                 }
-                let receipts = [];
                 try {
-                    receipts = await this.receiptApiService.list();
+                    this.receipts = await this.receiptApiService.list();
                 }
                 catch {
-                    receipts = [];
+                    this.receipts = [];
                 }
                 try {
                     this.bankTransactions = await this.bankApiService.listTransactions();
@@ -2836,7 +3084,8 @@ var ReceiptRing;
                 catch {
                     this.bankConnections = [];
                 }
-                this.monthlySpend = this.spendingAggregatorService.aggregate(receipts, this.bankTransactions);
+                this.monthlySpend = this.spendingAggregatorService.aggregate(this.receipts, this.bankTransactions, this.getSelfShares());
+                await this.refreshRentMonths();
                 this.populateMonths();
                 this.renderConnections();
                 this.renderRentEntries();
@@ -2845,24 +3094,81 @@ var ReceiptRing;
                 this.renderTrend();
                 this.renderRing();
             }
+            getSelfShares() {
+                const shares = new Map();
+                for (const receipt of this.receipts) {
+                    const self = receipt.people.find((person) => person.isSelf);
+                    if (!self)
+                        continue;
+                    const lines = receipt.lines.map((line) => ({
+                        id: line.id,
+                        label: line.label,
+                        amount: Number(line.amount) || 0,
+                        confidence: 1,
+                        ignored: line.ignored ?? false,
+                        isFood: line.isFood ?? false
+                    }));
+                    const assignments = [];
+                    for (const line of receipt.lines) {
+                        for (const assignment of line.assignments) {
+                            if (!assignment.personId)
+                                continue;
+                            assignments.push({
+                                id: `${line.id}:${assignment.personId}`,
+                                lineId: line.id,
+                                personId: assignment.personId,
+                                mode: assignment.mode ?? "equal",
+                                value: Number(assignment.value) || 0
+                            });
+                        }
+                    }
+                    if (assignments.length === 0)
+                        continue;
+                    const people = receipt.people.map((person) => ({
+                        id: person.id,
+                        name: person.name,
+                        isSelf: person.isSelf
+                    }));
+                    const summary = this.splitCalculatorService.calculate(people, lines, assignments, Number(receipt.tax) || 0);
+                    const mine = summary.totals.find((total) => total.personId === self.id);
+                    if (mine)
+                        shares.set(receipt.id, mine.finalTotal);
+                }
+                return shares;
+            }
+            async refreshRentMonths() {
+                try {
+                    const entries = await this.rentEntryApiService.list();
+                    this.rentMonths = new Set(entries.map((entry) => ReceiptRing.Services.rentMonthKey(entry.year, entry.month)));
+                    this.rentEntryByTransaction = new Map(entries
+                        .filter((entry) => typeof entry.bankTransactionId === "string" && entry.bankTransactionId.length > 0)
+                        .map((entry) => [entry.bankTransactionId, entry.id]));
+                }
+                catch (error) {
+                    console.error("Failed to load rent months:", error);
+                }
+            }
             populateMonths() {
                 const select = this.elements.budgetMonth;
                 const previous = this.selectedMonth;
                 select.replaceChildren();
-                for (const entry of this.monthlySpend) {
+                const months = new Set(this.monthlySpend.map((entry) => entry.month));
+                for (const month of this.rentMonths) {
+                    months.add(month);
+                }
+                const ordered = [...months].sort((a, b) => (a < b ? 1 : -1));
+                for (const month of ordered) {
                     const option = document.createElement("option");
-                    option.value = entry.month;
-                    option.textContent = this.formatMonthLabel(entry.month);
+                    option.value = month;
+                    option.textContent = this.formatMonthLabel(month);
                     select.append(option);
                 }
-                if (this.monthlySpend.length === 0) {
+                if (ordered.length === 0) {
                     this.selectedMonth = null;
                     return;
                 }
-                this.selectedMonth = this.monthlySpend.some((entry) => entry.month === previous)
-                    ? previous
-                    : this.monthlySpend[0].month;
-                select.value = this.selectedMonth ?? "";
+                this.selectedMonth = previous !== null && ordered.includes(previous) ? previous : ordered[0];
+                select.value = this.selectedMonth;
             }
             renderConnections() {
                 const container = this.elements.bankConnections;
@@ -2948,52 +3254,276 @@ var ReceiptRing;
                 this.setTransactionsEmptyMessage(transactions.length === 0);
                 list.replaceChildren();
                 for (const txn of transactions.slice(0, 100)) {
-                    const row = document.createElement("div");
-                    row.className = "transaction-row";
-                    row.dataset.transactionId = txn.id;
-                    row.style.cursor = "pointer";
-                    const main = document.createElement("div");
-                    main.className = "transaction-main";
-                    const desc = document.createElement("span");
-                    desc.className = "transaction-desc";
-                    desc.textContent = txn.description ?? "Transaction";
-                    const meta = document.createElement("span");
-                    meta.className = "transaction-meta";
-                    const date = this.formatTransactionDate(txn.date);
-                    meta.textContent = txn.category ? `${date} · ${txn.category}` : date;
-                    main.append(desc, meta);
-                    const linkedReceiptId = this.linkedReceipts.get(txn.id);
-                    if (linkedReceiptId) {
-                        const linkIcon = document.createElement("span");
-                        linkIcon.className = "transaction-link-icon";
-                        linkIcon.setAttribute("aria-label", "Receipt linked");
-                        linkIcon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M13.5 3.5a4 4 0 0 1 4 4v3h2a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2h2v-3a4 4 0 0 1 4-4Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M10.5 11h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>`;
-                        main.append(linkIcon);
+                    list.append(this.buildTransactionRow(txn));
+                }
+            }
+            buildTransactionRow(txn) {
+                const row = document.createElement("div");
+                row.className = "transaction-row";
+                row.dataset.transactionId = txn.id;
+                const main = document.createElement("div");
+                main.className = "transaction-main";
+                const desc = document.createElement("span");
+                desc.className = "transaction-desc";
+                desc.textContent = txn.description ?? "Transaction";
+                const meta = document.createElement("span");
+                meta.className = "transaction-meta";
+                const date = this.formatTransactionDate(txn.date);
+                meta.textContent = txn.category ? `${date} \u00b7 ${txn.category}` : date;
+                main.append(desc);
+                const linkedReceipt = this.findLinkedReceipt(txn);
+                const tags = document.createElement("div");
+                tags.className = "transaction-tags";
+                if (this.rentEntryByTransaction.has(txn.id)) {
+                    tags.append(this.buildTransactionTag("Rent", "is-rent"));
+                }
+                if (txn.linkedReceiptId) {
+                    const name = linkedReceipt?.storeName?.trim();
+                    tags.append(this.buildTransactionTag(name ? `Receipt \u00b7 ${name}` : "Receipt", "is-receipt", RECEIPT_TAG_ICON));
+                    row.classList.add("has-receipt");
+                }
+                const submeta = document.createElement("div");
+                submeta.className = "transaction-submeta";
+                submeta.append(meta, tags);
+                main.append(submeta);
+                const actions = document.createElement("div");
+                actions.className = "transaction-actions";
+                actions.append(this.buildFoodToggle(txn), this.buildTransactionMenu(txn, linkedReceipt));
+                const amount = document.createElement("span");
+                amount.className = "transaction-amount";
+                amount.textContent = this.currencyFormatService.format(txn.amount);
+                row.addEventListener("dragover", (event) => {
+                    event.preventDefault();
+                    row.classList.add("is-drag-over");
+                });
+                row.addEventListener("dragleave", () => {
+                    row.classList.remove("is-drag-over");
+                });
+                row.addEventListener("drop", (event) => {
+                    event.preventDefault();
+                    row.classList.remove("is-drag-over");
+                    const receiptId = event.dataTransfer?.getData("text/plain");
+                    if (receiptId) {
+                        void this.linkReceiptToTransaction(receiptId, txn.id);
                     }
-                    const amount = document.createElement("span");
-                    amount.className = "transaction-amount";
-                    amount.textContent = this.currencyFormatService.format(txn.amount);
-                    row.addEventListener("dragover", (event) => {
-                        event.preventDefault();
-                        row.classList.add("is-drag-over");
+                });
+                row.append(main, actions, amount);
+                return row;
+            }
+            buildTransactionTag(text, variant, iconSvg) {
+                const tag = document.createElement("span");
+                tag.className = `transaction-tag ${variant}`;
+                if (iconSvg) {
+                    const icon = document.createElement("span");
+                    icon.className = "transaction-tag-icon";
+                    icon.innerHTML = iconSvg;
+                    tag.append(icon);
+                }
+                const label = document.createElement("span");
+                label.className = "transaction-tag-text";
+                label.textContent = text;
+                tag.append(label);
+                return tag;
+            }
+            buildFoodToggle(txn) {
+                const toggle = document.createElement("button");
+                toggle.type = "button";
+                toggle.className = "line-food-check txn-food-toggle";
+                toggle.classList.toggle("is-on", txn.isFood);
+                toggle.setAttribute("aria-pressed", String(txn.isFood));
+                toggle.setAttribute("aria-label", txn.isFood ? "Remove food flag" : "Count as food");
+                toggle.title = txn.isFood
+                    ? "Counted as food in education expenses"
+                    : "Count this transaction as food in education expenses";
+                toggle.innerHTML = ReceiptRing.UI.SplitWorkspaceView.getFoodCheckIcon(txn.isFood);
+                const label = document.createElement("span");
+                label.className = "txn-food-label";
+                label.textContent = "Food";
+                toggle.append(label);
+                toggle.addEventListener("click", () => void this.toggleTransactionFood(txn.id, !txn.isFood));
+                return toggle;
+            }
+            buildTransactionMenu(txn, linkedReceipt) {
+                const menu = document.createElement("details");
+                menu.className = "txn-menu";
+                const trigger = document.createElement("summary");
+                trigger.className = "txn-menu-trigger";
+                trigger.setAttribute("aria-label", "Transaction options");
+                trigger.setAttribute("title", "Transaction options");
+                trigger.textContent = "\u22ef";
+                menu.append(trigger);
+                const panel = document.createElement("div");
+                panel.className = "txn-menu-panel";
+                const addItem = (label, onSelect, variant = "") => {
+                    const button = document.createElement("button");
+                    button.type = "button";
+                    button.className = variant ? `txn-menu-item ${variant}` : "txn-menu-item";
+                    button.textContent = label;
+                    button.addEventListener("click", () => {
+                        menu.open = false;
+                        onSelect();
                     });
-                    row.addEventListener("dragleave", () => {
-                        row.classList.remove("is-drag-over");
+                    panel.append(button);
+                };
+                const rentEntryId = this.rentEntryByTransaction.get(txn.id);
+                if (rentEntryId) {
+                    addItem("Remove rent payment", () => void this.removeTransactionRent(rentEntryId), "is-danger");
+                }
+                else {
+                    addItem("Log as rent payment", () => void this.logTransactionAsRent(txn));
+                }
+                addItem(txn.isFood ? "Remove food flag" : "Count as food", () => void this.toggleTransactionFood(txn.id, !txn.isFood));
+                if (txn.linkedReceiptId) {
+                    const receiptId = txn.linkedReceiptId;
+                    if (linkedReceipt?.hasImage) {
+                        addItem("Open receipt photo", () => this.openReceiptPhoto(receiptId));
+                    }
+                    addItem("Detach receipt", () => void this.detachReceipt(txn), "is-danger");
+                }
+                else {
+                    addItem("Attach a receipt file\u2026", () => this.promptForReceiptFile(txn.id));
+                    addItem("Link a saved receipt\u2026", () => this.openReceiptLinkModal(txn.id));
+                }
+                menu.append(panel);
+                menu.addEventListener("toggle", () => {
+                    if (menu.open)
+                        this.closeTransactionMenus(menu);
+                });
+                return menu;
+            }
+            closeTransactionMenus(except) {
+                this.elements.transactionsList
+                    .querySelectorAll("details.txn-menu[open]")
+                    .forEach((menu) => {
+                    if (menu !== except)
+                        menu.open = false;
+                });
+            }
+            findLinkedReceipt(txn) {
+                if (!txn.linkedReceiptId)
+                    return null;
+                return this.receipts.find((receipt) => receipt.id === txn.linkedReceiptId) ?? null;
+            }
+            openReceiptPhoto(receiptId) {
+                window.open(this.receiptApiService.imageUrl(receiptId), "_blank", "noopener");
+            }
+            async logTransactionAsRent(txn) {
+                const parts = ReceiptRing.Services.parseRentDateParts(txn.date);
+                if (!parts) {
+                    this.notificationService.error("This transaction has no usable date.");
+                    return;
+                }
+                const amount = Math.abs(txn.amount);
+                if (!(amount > 0)) {
+                    this.notificationService.error("A rent payment needs a non-zero amount.");
+                    return;
+                }
+                try {
+                    await this.rentEntryApiService.create({
+                        year: parts.year,
+                        month: parts.month,
+                        amount,
+                        propertyName: txn.description ?? undefined,
+                        date: txn.date,
+                        bankTransactionId: txn.id
                     });
-                    row.addEventListener("drop", (event) => {
-                        event.preventDefault();
-                        row.classList.remove("is-drag-over");
-                        const receiptId = event.dataTransfer?.getData("text/plain");
-                        if (receiptId) {
-                            void this.linkReceiptToTransaction(receiptId, txn.id);
-                        }
+                    await this.refreshRentMonths();
+                    this.populateMonths();
+                    this.selectMonth(ReceiptRing.Services.rentMonthKey(parts.year, parts.month));
+                    this.notificationService.success("Logged as a rent payment.");
+                }
+                catch (error) {
+                    const message = error instanceof Error ? error.message : "Could not log the rent payment.";
+                    this.notificationService.error(message);
+                }
+            }
+            async removeTransactionRent(rentEntryId) {
+                try {
+                    await this.rentEntryApiService.delete(rentEntryId);
+                    await this.refreshRentMonths();
+                    this.populateMonths();
+                    this.selectMonth(this.selectedMonth);
+                    this.notificationService.success("Rent payment removed.");
+                }
+                catch (error) {
+                    const message = error instanceof Error ? error.message : "Could not remove the rent payment.";
+                    this.notificationService.error(message);
+                }
+            }
+            promptForReceiptFile(transactionId) {
+                this.attachingTransactionId = transactionId;
+                this.elements.transactionReceiptFile.value = "";
+                this.elements.transactionReceiptFile.click();
+            }
+            async attachReceiptFile(file) {
+                const transactionId = this.attachingTransactionId;
+                this.attachingTransactionId = null;
+                if (!transactionId)
+                    return;
+                const txn = this.bankTransactions.find((candidate) => candidate.id === transactionId);
+                if (!txn)
+                    return;
+                try {
+                    const imageDataUrl = await this.receiptImageService.toStorableDataUrl(file);
+                    if (!imageDataUrl) {
+                        this.notificationService.error("That file could not be read as an image.");
+                        return;
+                    }
+                    const label = (txn.description ?? "Transaction").slice(0, 200);
+                    const amount = Math.abs(txn.amount);
+                    const saved = await this.receiptApiService.save({
+                        storeName: label,
+                        category: this.categorizationService.categorize(label).category,
+                        subtotal: null,
+                        tax: null,
+                        total: amount,
+                        people: [],
+                        lines: [{ clientId: this.idService.create(), label, amount, ignored: false }],
+                        assignments: [],
+                        imageDataUrl
                     });
-                    row.addEventListener("click", () => this.openReceiptLinkModal(txn.id));
-                    row.append(main, amount);
-                    list.append(row);
+                    await this.receiptApiService.linkTransactionToReceipt(saved.id, transactionId);
+                    this.receipts = [saved, ...this.receipts];
+                    this.applyReceiptLink(transactionId, saved.id);
+                    this.renderTransactions();
+                    this.notificationService.success("Receipt attached.");
+                }
+                catch (error) {
+                    const message = error instanceof Error ? error.message : "Could not attach the receipt.";
+                    this.notificationService.error(`Failed to attach the receipt. ${message}`);
+                }
+            }
+            async detachReceipt(txn) {
+                const receiptId = txn.linkedReceiptId;
+                if (!receiptId)
+                    return;
+                try {
+                    await this.receiptApiService.unlinkTransactionFromReceipt(receiptId);
+                    this.applyReceiptLink(txn.id, null);
+                    this.renderTransactions();
+                    this.notificationService.success("Receipt detached.");
+                }
+                catch (error) {
+                    const message = error instanceof Error ? error.message : "Could not detach the receipt.";
+                    this.notificationService.error(`Failed to detach the receipt. ${message}`);
+                }
+            }
+            applyReceiptLink(transactionId, receiptId) {
+                this.bankTransactions = this.bankTransactions.map((txn) => txn.id === transactionId ? { ...txn, linkedReceiptId: receiptId } : txn);
+                this.monthlySpend = this.spendingAggregatorService.aggregate(this.receipts, this.bankTransactions, this.getSelfShares());
+                this.renderTrend();
+                this.renderRing();
+            }
+            async toggleTransactionFood(transactionId, isFood) {
+                try {
+                    await this.bankApiService.updateTransactionFood(transactionId, isFood);
+                    this.bankTransactions = this.bankTransactions.map((txn) => txn.id === transactionId ? { ...txn, isFood } : txn);
+                    this.renderTransactions();
+                    void this.renderEducationExpenses();
+                }
+                catch (error) {
+                    const message = error instanceof Error ? error.message : "Could not update the transaction.";
+                    this.notificationService.error(`Failed to update food flag. ${message}`);
                 }
             }
             setTransactionsEmptyMessage(isEmpty) {
@@ -3065,11 +3595,12 @@ var ReceiptRing;
             renderRentEntries() {
                 void (async () => {
                     try {
-                        if (!this.selectedMonth) {
+                        const month = this.selectedMonth ?? this.spendingAggregatorService.monthKey(new Date().toISOString());
+                        if (!month) {
                             this.rentEntriesView.render(this.elements.rentEntriesList, []);
                             return;
                         }
-                        this.rentEntries = await this.rentEntryApiService.list(this.selectedMonth);
+                        this.rentEntries = await this.rentEntryApiService.list(month);
                         this.rentEntriesView.render(this.elements.rentEntriesList, this.rentEntries);
                     }
                     catch (error) {
@@ -3096,11 +3627,14 @@ var ReceiptRing;
                     this.notificationService.error("Please fill in the date and amount.");
                     return;
                 }
+                const parts = ReceiptRing.Services.parseRentDateParts(date);
+                if (!parts) {
+                    this.notificationService.error("Please enter the date as YYYY-MM-DD.");
+                    return;
+                }
                 this.elements.rentEntrySaveButton.setAttribute("disabled", "true");
                 try {
-                    const dateObj = new Date(date);
-                    const year = dateObj.getFullYear();
-                    const month = dateObj.getMonth() + 1;
+                    const { year, month } = parts;
                     let photoDataUrl;
                     if (photoFile) {
                         photoDataUrl = await this.fileToDataUrl(photoFile);
@@ -3113,20 +3647,24 @@ var ReceiptRing;
                         date,
                         photoDataUrl
                     };
+                    const wasEditing = this.editingRentEntryId !== null;
                     if (this.editingRentEntryId) {
                         await this.rentEntryApiService.update(this.editingRentEntryId, {
                             amount,
                             propertyName: propertyName || undefined,
                             date,
-                            photoUrl: photoDataUrl
+                            photoDataUrl
                         });
                     }
                     else {
                         await this.rentEntryApiService.create(payload);
                     }
-                    this.notificationService.success(this.editingRentEntryId ? "Rent entry updated." : "Rent entry saved.");
+                    this.notificationService.success(wasEditing ? "Rent entry updated." : "Rent entry saved.");
                     this.closeRentEntryModal();
-                    void this.renderRentEntries();
+                    const savedMonth = ReceiptRing.Services.rentMonthKey(year, month);
+                    this.rentMonths.add(savedMonth);
+                    this.populateMonths();
+                    this.selectMonth(savedMonth);
                 }
                 catch (error) {
                     const message = error instanceof Error ? error.message : "Could not save rent entry.";
@@ -3149,7 +3687,9 @@ var ReceiptRing;
                 try {
                     await this.rentEntryApiService.delete(entry.id);
                     this.notificationService.success("Rent entry deleted.");
-                    void this.renderRentEntries();
+                    await this.refreshRentMonths();
+                    this.populateMonths();
+                    this.selectMonth(this.selectedMonth);
                 }
                 catch (error) {
                     const message = error instanceof Error ? error.message : "Could not delete rent entry.";
@@ -3170,6 +3710,7 @@ var ReceiptRing;
             }
             openReceiptLinkModal(transactionId) {
                 this.linkingTransactionId = transactionId;
+                this.elements.receiptLinkEmpty.classList.add("hidden");
                 this.renderReceiptLinkList();
                 this.elements.receiptLinkModal.classList.remove("hidden");
             }
@@ -3183,11 +3724,9 @@ var ReceiptRing;
                 void (async () => {
                     try {
                         const receipts = await this.receiptApiService.list();
+                        this.receipts = receipts;
                         if (receipts.length === 0) {
-                            const empty = document.querySelector("#receiptLinkEmpty");
-                            if (empty instanceof HTMLElement) {
-                                empty.classList.remove("hidden");
-                            }
+                            this.elements.receiptLinkEmpty.classList.remove("hidden");
                             return;
                         }
                         receipts.forEach((receipt) => {
@@ -3225,27 +3764,102 @@ var ReceiptRing;
                     }
                 })();
             }
+            openTransactionLinkModal(receiptId) {
+                this.linkingReceiptId = receiptId;
+                this.elements.transactionLinkEmpty.classList.add("hidden");
+                this.renderTransactionLinkList();
+                this.elements.transactionLinkModal.classList.remove("hidden");
+            }
+            closeTransactionLinkModal() {
+                this.linkingReceiptId = null;
+                this.elements.transactionLinkModal.classList.add("hidden");
+            }
+            renderTransactionLinkList() {
+                const list = this.elements.transactionLinkList;
+                list.replaceChildren();
+                void (async () => {
+                    try {
+                        const transactions = await this.bankApiService.listTransactions();
+                        this.bankTransactions = transactions;
+                        const available = transactions
+                            .filter((txn) => !txn.linkedReceiptId)
+                            .sort((a, b) => (a.date < b.date ? 1 : -1));
+                        if (available.length === 0) {
+                            this.elements.transactionLinkEmpty.classList.remove("hidden");
+                            return;
+                        }
+                        available.slice(0, 100).forEach((txn) => {
+                            const card = document.createElement("button");
+                            card.className = "transaction-link-item";
+                            card.type = "button";
+                            const main = document.createElement("div");
+                            main.className = "transaction-link-main";
+                            const desc = document.createElement("strong");
+                            desc.textContent = txn.description ?? "Transaction";
+                            const meta = document.createElement("span");
+                            meta.className = "transaction-link-meta";
+                            const when = this.formatTransactionDate(txn.date);
+                            meta.textContent = txn.category ? `${when} · ${txn.category}` : when;
+                            main.append(desc, meta);
+                            const amount = document.createElement("span");
+                            amount.className = "transaction-link-amount";
+                            amount.textContent = this.currencyFormatService.format(txn.amount);
+                            card.append(main, amount);
+                            card.addEventListener("click", () => void this.selectTransactionForLink(txn.id));
+                            list.append(card);
+                        });
+                    }
+                    catch (error) {
+                        const msg = document.createElement("p");
+                        msg.className = "assign-hint";
+                        msg.textContent =
+                            error instanceof Error ? error.message : "Could not load transactions.";
+                        list.append(msg);
+                    }
+                })();
+            }
+            async selectTransactionForLink(transactionId) {
+                const receiptId = this.linkingReceiptId;
+                if (!receiptId)
+                    return;
+                if (await this.linkReceiptToTransaction(receiptId, transactionId)) {
+                    this.closeTransactionLinkModal();
+                    await this.loadHistory();
+                }
+            }
+            async unlinkReceiptFromHistory(receipt) {
+                try {
+                    await this.receiptApiService.unlinkTransactionFromReceipt(receipt.id);
+                    const transactionId = receipt.linkedTransaction?.id;
+                    if (transactionId)
+                        this.applyReceiptLink(transactionId, null);
+                    this.notificationService.success("Receipt unlinked from its transaction.");
+                    await this.loadHistory();
+                }
+                catch (error) {
+                    const message = error instanceof Error ? error.message : "Could not unlink receipt.";
+                    this.notificationService.error(message);
+                }
+            }
             async selectReceiptForLink(receiptId) {
                 if (!this.linkingTransactionId)
                     return;
-                try {
-                    await this.linkReceiptToTransaction(receiptId, this.linkingTransactionId);
+                if (await this.linkReceiptToTransaction(receiptId, this.linkingTransactionId)) {
                     this.closeReceiptLinkModal();
-                }
-                catch (error) {
-                    const message = error instanceof Error ? error.message : "Could not link receipt.";
-                    this.notificationService.error(`Failed to link receipt. ${message}`);
                 }
             }
             async linkReceiptToTransaction(receiptId, transactionId) {
                 try {
                     await this.receiptApiService.linkTransactionToReceipt(receiptId, transactionId);
-                    this.linkedReceipts.set(transactionId, receiptId);
+                    this.applyReceiptLink(transactionId, receiptId);
                     this.renderTransactions();
+                    this.notificationService.success("Receipt attached to the transaction.");
+                    return true;
                 }
                 catch (error) {
                     const message = error instanceof Error ? error.message : "Could not link receipt to transaction.";
-                    throw new Error(message);
+                    this.notificationService.error(`Failed to attach the receipt. ${message}`);
+                    return false;
                 }
             }
             async renderEducationExpenses() {
@@ -3261,23 +3875,31 @@ var ReceiptRing;
                     this.elements.educationExpensesTotal.textContent = this.currencyFormatService.format(combinedTotal);
                     const foodList = this.elements.foodItemsList;
                     foodList.replaceChildren();
-                    this.elements.foodEmpty.classList.toggle("hidden", foodSummary.foodItems.length > 0);
-                    for (const item of foodSummary.foodItems) {
+                    const foodTransactions = foodSummary.foodTransactions ?? [];
+                    this.elements.foodEmpty.classList.toggle("hidden", foodSummary.foodItems.length + foodTransactions.length > 0);
+                    const appendFoodRow = (labelText, sourceText, amountValue) => {
                         const row = document.createElement("div");
                         row.className = "food-item-row";
+                        row.classList.toggle("is-credit", amountValue < 0);
                         const label = document.createElement("span");
                         label.className = "food-item-label";
-                        label.textContent = item.label;
+                        label.textContent = labelText;
                         const store = document.createElement("span");
                         store.className = "food-item-store";
-                        store.textContent = item.receipt.storeName || "Unknown store";
+                        store.textContent = sourceText;
                         const amount = document.createElement("span");
                         amount.className = "food-item-amount";
-                        amount.textContent = this.currencyFormatService.format(item.amount);
+                        amount.textContent = this.currencyFormatService.format(amountValue);
                         row.append(label, store, amount);
                         foodList.append(row);
+                    };
+                    for (const item of foodSummary.foodItems) {
+                        appendFoodRow(item.label, item.receipt.storeName || "Unknown store", item.amount);
                     }
-                    this.elements.rentEmpty.classList.toggle("hidden", this.rentEntries.length > 0);
+                    for (const txn of foodTransactions) {
+                        appendFoodRow(txn.description || "Bank transaction", `Bank · ${this.formatTransactionDate(txn.date)}`, txn.amount);
+                    }
+                    this.elements.rentEmpty.classList.toggle("hidden", rentSummary.entries.length > 0);
                 }
                 catch (error) {
                     console.error("Failed to render education expenses:", error);
