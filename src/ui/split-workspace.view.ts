@@ -85,10 +85,12 @@ namespace ReceiptRing.UI {
         row.append(name, foodCheck, assignCell, amount, ignore);
         container.append(row);
 
-        // Reopen after insertion so the toggle handler can measure the summary
-        // to position the popup.
+        // Reopen after insertion so there is a laid-out summary to measure.
+        // `toggle` fires asynchronously, so the popup is also anchored here and
+        // now -- waiting for the event left it unpositioned for a frame.
         if (openLineIds.has(line.id)) {
           dropdown.open = true;
+          this.anchorDropdown(dropdown);
         }
       });
     }
@@ -122,6 +124,14 @@ namespace ReceiptRing.UI {
       const reposition = (): void => {
         if (!details.isConnected) {
           this.teardownPanelPositioning(reposition);
+          return;
+        }
+        // Scrolling the row itself off screen leaves the popup pinned to a
+        // summary the user can no longer see, which reads as a menu floating
+        // over unrelated rows. Close it instead of chasing an absent anchor.
+        const summaryRect = summary.getBoundingClientRect();
+        if (summaryRect.bottom < 0 || summaryRect.top > window.innerHeight) {
+          details.open = false;
           return;
         }
         this.positionPanel(summary, panel);
@@ -448,6 +458,17 @@ namespace ReceiptRing.UI {
       });
     }
 
+    /**
+     * Re-anchor an already-open dropdown to its own summary. Used after a
+     * re-render, where the row is a brand new element that the pending `toggle`
+     * event has not caught up with yet.
+     */
+    private anchorDropdown(details: HTMLDetailsElement): void {
+      const summary = details.querySelector<HTMLElement>("summary.assign-summary");
+      const panel = details.querySelector<HTMLElement>(".assign-panel-pop");
+      if (summary && panel) this.positionPanel(summary, panel);
+    }
+
     private positionPanel(summary: HTMLElement, panel: HTMLElement): void {
       const margin = 8;
       const summaryRect = summary.getBoundingClientRect();
@@ -480,9 +501,12 @@ namespace ReceiptRing.UI {
       panel.style.top = `${top}px`;
       panel.style.left = `${left}px`;
       panel.style.overflowY = "auto";
+      // Only now is it safe to paint: the panel is over its own summary.
+      panel.classList.add("is-anchored");
     }
 
     private resetPanelPosition(panel: HTMLElement): void {
+      panel.classList.remove("is-anchored");
       panel.style.position = "";
       panel.style.top = "";
       panel.style.left = "";

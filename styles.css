@@ -715,6 +715,13 @@ input[type="number"] {
   /* Positioned (top/left/width/max-height) in JS on open via position: fixed
      so the popup escapes the .items-table overflow clip and viewport edges. */
   position: fixed;
+  /* Hidden until JS has anchored it to its summary. `toggle` fires
+     asynchronously, so between the panel becoming visible and the handler
+     running there was a frame where a fixed element with no top/left painted at
+     its static position projected into the viewport -- halfway up the screen for
+     a row far down a scrolled receipt. Re-rendering the rows on every
+     assignment click re-opened the dropdown and flashed it there each time. */
+  visibility: hidden;
   z-index: 50;
   min-width: 230px;
   display: grid;
@@ -724,6 +731,10 @@ input[type="number"] {
   border-radius: 12px;
   background: var(--surface-2);
   box-shadow: var(--shadow-pop);
+}
+
+.assign-panel-pop.is-anchored {
+  visibility: visible;
 }
 
 .assign-hint {
