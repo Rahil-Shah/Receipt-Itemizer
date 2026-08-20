@@ -3872,6 +3872,60 @@ var ReceiptRing;
                     return false;
                 }
             }
+            buildFoodReceiptRow(group) {
+                const details = document.createElement("details");
+                details.className = "food-receipt";
+                const summary = document.createElement("summary");
+                summary.className = "food-receipt-summary";
+                const label = document.createElement("span");
+                label.className = "food-item-label";
+                label.textContent = group.storeName || "Unknown store";
+                const meta = document.createElement("span");
+                meta.className = "food-item-store";
+                const itemCount = `${group.items.length} ${group.items.length === 1 ? "item" : "items"}`;
+                meta.textContent = `${this.formatTransactionDate(group.date)} · ${itemCount}`;
+                const amount = document.createElement("span");
+                amount.className = "food-item-amount";
+                amount.textContent = this.currencyFormatService.format(group.total);
+                summary.append(label, meta, amount);
+                details.append(summary);
+                const body = document.createElement("div");
+                body.className = "food-receipt-items";
+                for (const item of group.items) {
+                    const row = document.createElement("div");
+                    row.className = "food-receipt-item";
+                    const itemLabel = document.createElement("span");
+                    itemLabel.className = "food-receipt-item-label";
+                    itemLabel.textContent = item.label;
+                    const note = document.createElement("span");
+                    note.className = "food-receipt-item-note";
+                    if (item.shared) {
+                        const names = item.sharedWith.length > 0 ? ` with ${item.sharedWith.join(", ")}` : "";
+                        note.textContent = `your share of ${this.currencyFormatService.format(item.fullAmount)}${names}`;
+                    }
+                    const itemAmount = document.createElement("span");
+                    itemAmount.className = "food-receipt-item-amount";
+                    itemAmount.textContent = this.currencyFormatService.format(item.amount);
+                    row.append(itemLabel, note, itemAmount);
+                    body.append(row);
+                }
+                if (group.taxTotal !== 0) {
+                    const taxRow = document.createElement("div");
+                    taxRow.className = "food-receipt-item is-tax";
+                    const taxLabel = document.createElement("span");
+                    taxLabel.className = "food-receipt-item-label";
+                    taxLabel.textContent = "Tax on your food";
+                    const spacer = document.createElement("span");
+                    spacer.className = "food-receipt-item-note";
+                    const taxAmount = document.createElement("span");
+                    taxAmount.className = "food-receipt-item-amount";
+                    taxAmount.textContent = this.currencyFormatService.format(group.taxTotal);
+                    taxRow.append(taxLabel, spacer, taxAmount);
+                    body.append(taxRow);
+                }
+                details.append(body);
+                return details;
+            }
             async renderEducationExpenses() {
                 try {
                     const month = this.selectedMonth ?? (this.spendingAggregatorService.monthKey(new Date().toISOString()) ?? undefined);
@@ -3885,8 +3939,9 @@ var ReceiptRing;
                     this.elements.educationExpensesTotal.textContent = this.currencyFormatService.format(combinedTotal);
                     const foodList = this.elements.foodItemsList;
                     foodList.replaceChildren();
+                    const foodReceipts = foodSummary.foodReceipts ?? [];
                     const foodTransactions = foodSummary.foodTransactions ?? [];
-                    this.elements.foodEmpty.classList.toggle("hidden", foodSummary.foodItems.length + foodTransactions.length > 0);
+                    this.elements.foodEmpty.classList.toggle("hidden", foodReceipts.length + foodTransactions.length > 0);
                     const appendFoodRow = (labelText, sourceText, amountValue) => {
                         const row = document.createElement("div");
                         row.className = "food-item-row";
@@ -3903,8 +3958,8 @@ var ReceiptRing;
                         row.append(label, store, amount);
                         foodList.append(row);
                     };
-                    for (const item of foodSummary.foodItems) {
-                        appendFoodRow(item.label, item.receipt.storeName || "Unknown store", item.amount);
+                    for (const group of foodReceipts) {
+                        foodList.append(this.buildFoodReceiptRow(group));
                     }
                     for (const txn of foodTransactions) {
                         appendFoodRow(txn.description || "Bank transaction", `Bank · ${this.formatTransactionDate(txn.date)}`, txn.amount);

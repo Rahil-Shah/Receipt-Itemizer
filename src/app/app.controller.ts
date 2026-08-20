@@ -1955,6 +1955,87 @@ namespace ReceiptRing.App {
       }
     }
 
+    /**
+     * A receipt's food spend as one collapsed row that opens to show the
+     * individual items. Shared items show the owner's share against what the
+     * line cost, so a split is legible without opening the receipt itself.
+     */
+    private buildFoodReceiptRow(group: Services.FoodSummaryReceipt): HTMLElement {
+      const details = document.createElement("details");
+      details.className = "food-receipt";
+
+      const summary = document.createElement("summary");
+      summary.className = "food-receipt-summary";
+
+      const label = document.createElement("span");
+      label.className = "food-item-label";
+      label.textContent = group.storeName || "Unknown store";
+
+      const meta = document.createElement("span");
+      meta.className = "food-item-store";
+      const itemCount = `${group.items.length} ${group.items.length === 1 ? "item" : "items"}`;
+      meta.textContent = `${this.formatTransactionDate(group.date)} · ${itemCount}`;
+
+      const amount = document.createElement("span");
+      amount.className = "food-item-amount";
+      amount.textContent = this.currencyFormatService.format(group.total);
+
+      summary.append(label, meta, amount);
+      details.append(summary);
+
+      const body = document.createElement("div");
+      body.className = "food-receipt-items";
+
+      for (const item of group.items) {
+        const row = document.createElement("div");
+        row.className = "food-receipt-item";
+
+        const itemLabel = document.createElement("span");
+        itemLabel.className = "food-receipt-item-label";
+        itemLabel.textContent = item.label;
+
+        const note = document.createElement("span");
+        note.className = "food-receipt-item-note";
+        if (item.shared) {
+          // Name who it was split with, so a share that looks too small to be
+          // the item's price explains itself.
+          const names = item.sharedWith.length > 0 ? ` with ${item.sharedWith.join(", ")}` : "";
+          note.textContent = `your share of ${this.currencyFormatService.format(item.fullAmount)}${names}`;
+        }
+
+        const itemAmount = document.createElement("span");
+        itemAmount.className = "food-receipt-item-amount";
+        itemAmount.textContent = this.currencyFormatService.format(item.amount);
+
+        row.append(itemLabel, note, itemAmount);
+        body.append(row);
+      }
+
+      // Tax rides along with the total above, so it is spelled out here rather
+      // than leaving the items looking like they do not add up.
+      if (group.taxTotal !== 0) {
+        const taxRow = document.createElement("div");
+        taxRow.className = "food-receipt-item is-tax";
+
+        const taxLabel = document.createElement("span");
+        taxLabel.className = "food-receipt-item-label";
+        taxLabel.textContent = "Tax on your food";
+
+        const spacer = document.createElement("span");
+        spacer.className = "food-receipt-item-note";
+
+        const taxAmount = document.createElement("span");
+        taxAmount.className = "food-receipt-item-amount";
+        taxAmount.textContent = this.currencyFormatService.format(group.taxTotal);
+
+        taxRow.append(taxLabel, spacer, taxAmount);
+        body.append(taxRow);
+      }
+
+      details.append(body);
+      return details;
+    }
+
     private async renderEducationExpenses(): Promise<void> {
       try {
         const month = this.selectedMonth ?? (this.spendingAggregatorService.monthKey(new Date().toISOString()) ?? undefined);
@@ -1974,10 +2055,11 @@ namespace ReceiptRing.App {
         // bank transactions flagged as food in the budgeting view.
         const foodList = this.elements.foodItemsList;
         foodList.replaceChildren();
+        const foodReceipts = foodSummary.foodReceipts ?? [];
         const foodTransactions = foodSummary.foodTransactions ?? [];
         this.elements.foodEmpty.classList.toggle(
           "hidden",
-          foodSummary.foodItems.length + foodTransactions.length > 0
+          foodReceipts.length + foodTransactions.length > 0
         );
 
         const appendFoodRow = (labelText: string, sourceText: string, amountValue: number): void => {
@@ -2004,8 +2086,12 @@ namespace ReceiptRing.App {
           foodList.append(row);
         };
 
-        for (const item of foodSummary.foodItems) {
-          appendFoodRow(item.label, item.receipt.storeName || "Unknown store", item.amount);
+        // One compact row per receipt: the number that counts toward the
+        // education expense is the owner's food total, and the items behind it
+        // are detail, so they live in a disclosure rather than flooding the
+        // list with a row per grocery item.
+        for (const group of foodReceipts) {
+          foodList.append(this.buildFoodReceiptRow(group));
         }
         for (const txn of foodTransactions) {
           appendFoodRow(

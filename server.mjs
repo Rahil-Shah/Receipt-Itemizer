@@ -11,6 +11,7 @@ import { createBank } from "./server/bank.mjs";
 import { registerGemini } from "./server/gemini.mjs";
 import { createRateLimiter } from "./server/rate-limit.mjs";
 import { parseMonthParam, getMonthRange, getUtcMonthRange } from "./server/month.mjs";
+import { summariseReceiptFood } from "./server/food-share.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -667,56 +668,94 @@ app.patch("/api/receipts/:receiptId/lines/:lineId", requireAuth, async (req, res
 });
 
 // GET /api/receipts/food-summary?month=YYYY-MM - Get food spending totals
+//
+// Reports what the account owner spent on food, not what the food cost. A line
+// split with friends counts only for the owner's share, and a line assigned
+// wholly to someone else does not count at all -- they are paying for it.
+// Results are grouped per receipt so the budgeting view can show one compact
+// row per shop and keep the individual items behind a disclosure.
 app.get("/api/receipts/food-summary", requireAuth, async (req, res) => {
   try {
-    let whereClause = {
-      receipt: { userId: req.userId },
-      isFood: true
-    };
+    const receiptWhere = { userId: req.userId, lines: { some: { isFood: true, ignored: false } } };
 
     // Optional month filter
+    let txnWhere = { isFood: true, account: { connection: { userId: req.userId } } };
     if (req.query.month) {
       const parsed = parseMonthParam(req.query.month);
       if (!parsed) {
         return res.status(400).json({ error: "month must be in YYYY-MM format." });
       }
       const { start, end } = getMonthRange(parsed.year, parsed.month);
-      whereClause.receipt.createdAt = {
-        gte: start,
-        lt: end
-      };
+      receiptWhere.createdAt = { gte: start, lt: end };
+
+      // Bank transaction dates are calendar dates stored as UTC midnight (see
+      // server/bank.mjs), so the month window must be UTC — a local-time
+      // window would clip the first or last day of the month.
+      const utc = getUtcMonthRange(parsed.year, parsed.month);
+      txnWhere.date = { gte: utc.start, lt: utc.end };
     }
 
-    // Whole bank transactions can be flagged as food too (a dinner out with
-    // no itemized receipt). Their dates are calendar dates stored as UTC
-    // midnight (see server/bank.mjs), so the month window must be UTC —
-    // a local-time window would clip the first or last day of the month.
-    let txnWhere = { isFood: true, account: { connection: { userId: req.userId } } };
-    if (req.query.month) {
-      const parsed = parseMonthParam(req.query.month);
-      const { start, end } = getUtcMonthRange(parsed.year, parsed.month);
-      txnWhere.date = { gte: start, lt: end };
-    }
-
-    const [lines, foodTxns] = await Promise.all([
-      prisma.receiptLine.findMany({
-        where: whereClause,
-        include: { receipt: { select: { id: true, storeName: true, createdAt: true } } },
+    const [selfPerson, receipts, foodTxns] = await Promise.all([
+      prisma.accountPerson.findFirst({ where: { userId: req.userId, isSelf: true } }),
+      prisma.receipt.findMany({
+        where: receiptWhere,
+        select: {
+          id: true,
+          storeName: true,
+          createdAt: true,
+          tax: true,
+          lines: {
+            select: {
+              id: true,
+              label: true,
+              amount: true,
+              ignored: true,
+              isFood: true,
+              assignments: {
+                select: {
+                  mode: true,
+                  value: true,
+                  person: { select: { accountPersonId: true, accountPerson: { select: { name: true } } } }
+                }
+              }
+            },
+            orderBy: { sortOrder: "asc" }
+          }
+        },
         orderBy: { createdAt: "desc" }
       }),
       prisma.bankTransaction.findMany({ where: txnWhere, orderBy: { date: "desc" } })
     ]);
 
-    const foodItems = lines.map((line) => ({
-      lineId: line.id,
-      label: line.label,
-      amount: toNumber(line.amount),
-      receipt: {
-        id: line.receipt.id,
-        storeName: line.receipt.storeName,
-        date: line.receipt.createdAt.toISOString().slice(0, 10)
-      }
-    }));
+    const selfAccountPersonId = selfPerson?.id ?? null;
+    const foodReceipts = receipts
+      .map((receipt) =>
+        summariseReceiptFood(
+          {
+            id: receipt.id,
+            storeName: receipt.storeName,
+            date: receipt.createdAt.toISOString().slice(0, 10),
+            tax: toNumber(receipt.tax),
+            lines: receipt.lines.map((line) => ({
+              id: line.id,
+              label: line.label,
+              amount: toNumber(line.amount),
+              ignored: line.ignored,
+              isFood: line.isFood,
+              assignments: line.assignments.map((assignment) => ({
+                accountPersonId: assignment.person.accountPersonId,
+                name: assignment.person.accountPerson.name,
+                mode: assignment.mode,
+                value: toNumber(assignment.value)
+              }))
+            }))
+          },
+          selfAccountPersonId
+        )
+      )
+      // A receipt whose food was all assigned to other people leaves nothing
+      // behind, so it should not sit in the list as an empty $0.00 row.
+      .filter((group) => group.items.length > 0);
 
     // Outflows are stored negative and inflows positive (see server/bank.mjs),
     // so negating gives a food-spend figure: money spent on food becomes a
@@ -732,10 +771,10 @@ app.get("/api/receipts/food-summary", requireAuth, async (req, res) => {
     }));
 
     const foodTotal =
-      lines.reduce((sum, line) => sum + Number(line.amount), 0) +
+      foodReceipts.reduce((sum, group) => sum + group.total, 0) +
       foodTransactions.reduce((sum, txn) => sum + txn.amount, 0);
 
-    res.json({ foodTotal, foodItems, foodTransactions });
+    res.json({ foodTotal, foodReceipts, foodTransactions });
   } catch (error) {
     console.error("Failed to get food summary:", error);
     res.status(500).json({ error: "Failed to get food summary." });

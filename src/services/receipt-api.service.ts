@@ -76,12 +76,25 @@ namespace ReceiptRing.Services {
   export interface FoodSummaryItem {
     lineId: string;
     label: string;
+    // The owner's share of this line -- what actually counts toward their
+    // budget. `fullAmount` is what the line cost before it was split, so a
+    // shared item can show both.
     amount: number;
-    receipt: {
-      id: string;
-      storeName: string | null;
-      date: string;
-    };
+    fullAmount: number;
+    shared: boolean;
+    sharedWith: string[];
+  }
+
+  /** One receipt's worth of food the owner paid for, with the items behind it. */
+  export interface FoodSummaryReceipt {
+    receiptId: string;
+    storeName: string | null;
+    date: string;
+    itemTotal: number;
+    // The share of the receipt's tax that was charged on the owner's food.
+    taxTotal: number;
+    total: number;
+    items: FoodSummaryItem[];
   }
 
   export interface FoodSummaryTransaction {
@@ -93,7 +106,9 @@ namespace ReceiptRing.Services {
 
   export interface FoodSummary {
     foodTotal: number;
-    foodItems: FoodSummaryItem[];
+    // Grouped per receipt: the budgeting list shows one row per shop, with the
+    // individual items behind a disclosure.
+    foodReceipts: FoodSummaryReceipt[];
     // Whole bank transactions flagged as food in the budgeting view.
     foodTransactions: FoodSummaryTransaction[];
   }
