@@ -48,7 +48,8 @@ namespace ReceiptRing.App {
       private readonly monthlyTrendView: UI.MonthlyTrendView,
       private readonly peopleApiService: Services.PeopleApiService,
       private readonly rentEntryApiService: Services.RentEntryApiService,
-      private readonly rentEntriesView: UI.RentEntriesView
+      private readonly rentEntriesView: UI.RentEntriesView,
+      private readonly notificationService: Services.NotificationService
     ) {
       this.items = this.storageService.load();
     }
@@ -527,7 +528,7 @@ namespace ReceiptRing.App {
 
       // Prevent adding duplicate people
       if (this.people.some((p) => p.name.toLowerCase() === name.toLowerCase())) {
-        window.alert("This person is already in the list.");
+        this.notificationService.error("This person is already in the list.");
         return;
       }
 
@@ -540,7 +541,7 @@ namespace ReceiptRing.App {
           this.render();
         } catch (error) {
           const message = error instanceof Error ? error.message : "Could not add person.";
-          window.alert(message);
+          this.notificationService.error(message);
         } finally {
           this.elements.addPersonButton.removeAttribute("disabled");
         }
@@ -556,7 +557,7 @@ namespace ReceiptRing.App {
           this.render();
         } catch (error) {
           const message = error instanceof Error ? error.message : "Could not delete person.";
-          window.alert(message);
+          this.notificationService.error(message);
         }
       })();
     }
@@ -625,7 +626,7 @@ namespace ReceiptRing.App {
         await this.loadHistory();
       } catch (error) {
         const message = error instanceof Error ? error.message : "Could not update line.";
-        window.alert(`Failed to update food flag. ${message}`);
+        this.notificationService.error(`Failed to update food flag. ${message}`);
       }
     }
 
@@ -725,7 +726,7 @@ namespace ReceiptRing.App {
         await this.loadHistory();
       } catch (error) {
         const message = error instanceof Error ? error.message : "Please try again.";
-        window.alert(`Couldn't delete receipt. ${message}`);
+        this.notificationService.error(`Couldn't delete receipt. ${message}`);
       }
     }
 
@@ -1165,7 +1166,7 @@ namespace ReceiptRing.App {
       const photoFile = this.elements.rentEntryPhoto.files?.[0];
 
       if (!date || !amount || amount <= 0) {
-        window.alert("Please fill in the date and amount.");
+        this.notificationService.error("Please fill in the date and amount.");
         return;
       }
 
@@ -1202,15 +1203,15 @@ namespace ReceiptRing.App {
           await this.rentEntryApiService.create(payload);
         }
 
-        window.alert(this.editingRentEntryId ? "Rent entry updated." : "Rent entry saved.");
+        this.notificationService.success(this.editingRentEntryId ? "Rent entry updated." : "Rent entry saved.");
         this.closeRentEntryModal();
         void this.renderRentEntries();
       } catch (error) {
         const message = error instanceof Error ? error.message : "Could not save rent entry.";
         if (message.includes("already exists")) {
-          window.alert("A rent entry already exists for this month. Please edit the existing entry.");
+          this.notificationService.error("A rent entry already exists for this month. Please edit the existing entry.");
         } else {
-          window.alert(message);
+          this.notificationService.error(message);
         }
       } finally {
         this.elements.rentEntrySaveButton.removeAttribute("disabled");
@@ -1225,11 +1226,11 @@ namespace ReceiptRing.App {
 
       try {
         await this.rentEntryApiService.delete(entry.id);
-        window.alert("Rent entry deleted.");
+        this.notificationService.success("Rent entry deleted.");
         void this.renderRentEntries();
       } catch (error) {
         const message = error instanceof Error ? error.message : "Could not delete rent entry.";
-        window.alert(`Failed to delete rent entry. ${message}`);
+        this.notificationService.error(`Failed to delete rent entry. ${message}`);
       }
     }
 
@@ -1322,7 +1323,7 @@ namespace ReceiptRing.App {
         this.closeReceiptLinkModal();
       } catch (error) {
         const message = error instanceof Error ? error.message : "Could not link receipt.";
-        window.alert(`Failed to link receipt. ${message}`);
+        this.notificationService.error(`Failed to link receipt. ${message}`);
       }
     }
 

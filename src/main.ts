@@ -16,6 +16,7 @@ namespace ReceiptRing {
   const peopleApiService = new Services.PeopleApiService();
   const spendingAggregatorService = new Services.SpendingAggregatorService(categories);
   const rentEntryApiService = new Services.RentEntryApiService();
+  const notificationService = new Services.NotificationService();
   const elements = new UI.DomRegistryFactory().create();
   const categoryPromptView = new UI.CategoryPromptView(categories, elements);
   const splitWorkspaceView = new UI.SplitWorkspaceView(currencyFormatService, receiptApiService);
@@ -45,7 +46,8 @@ namespace ReceiptRing {
     monthlyTrendView,
     peopleApiService,
     rentEntryApiService,
-    rentEntriesView
+    rentEntriesView,
+    notificationService
   );
 
   // Gate the app behind authentication: nothing starts until a session exists.
