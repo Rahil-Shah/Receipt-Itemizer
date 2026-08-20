@@ -10,6 +10,7 @@ import { createAuth } from "./server/auth.mjs";
 import { createBank } from "./server/bank.mjs";
 import { registerGemini } from "./server/gemini.mjs";
 import { createRateLimiter } from "./server/rate-limit.mjs";
+import { parseMonthParam, getMonthRange, getUtcMonthRange } from "./server/month.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -511,24 +512,8 @@ app.get("/api/people/search", requireAuth, async (req, res) => {
 });
 
 // --- 529 Education Expenses Tracking (Food/Rent) ----------------------------
-
-// Helper: parse "YYYY-MM" month parameter
-function parseMonthParam(monthParam) {
-  if (!monthParam) return null;
-  const match = /^(\d{4})-(\d{2})$/.exec(monthParam);
-  if (!match) return null;
-  const year = parseInt(match[1], 10);
-  const month = parseInt(match[2], 10);
-  if (month < 1 || month > 12) return null;
-  return { year, month };
-}
-
-// Helper: get date range for a month
-function getMonthRange(year, month) {
-  const start = new Date(year, month - 1, 1);
-  const end = new Date(year, month, 1);
-  return { start, end };
-}
+// Month helpers live in server/month.mjs so unit tests can import them
+// without booting the server.
 
 // Helper: serialize ReceiptLine with isFood
 function serializeReceiptLineWithFood(line) {
