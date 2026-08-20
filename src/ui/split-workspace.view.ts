@@ -63,7 +63,7 @@ namespace ReceiptRing.UI {
         foodCheck.type = "button";
         foodCheck.setAttribute("aria-label", line.isFood ? "Mark as non-food" : "Mark as food");
         foodCheck.setAttribute("aria-pressed", String(line.isFood ?? false));
-        foodCheck.innerHTML = this.getFoodCheckIcon(line.isFood ?? false);
+        foodCheck.innerHTML = SplitWorkspaceView.getFoodCheckIcon(line.isFood ?? false);
         foodCheck.addEventListener("click", () => handlers.onLineFood(line.id, !(line.isFood ?? false)));
 
         const assignCell = document.createElement("div");
@@ -416,7 +416,7 @@ namespace ReceiptRing.UI {
             foodCheck.type = "button";
             foodCheck.setAttribute("aria-label", line.isFood ? "Mark as non-food" : "Mark as food");
             foodCheck.setAttribute("aria-pressed", String(line.isFood ?? false));
-            foodCheck.innerHTML = this.getFoodCheckIcon(line.isFood ?? false);
+            foodCheck.innerHTML = SplitWorkspaceView.getFoodCheckIcon(line.isFood ?? false);
             if (onLineFood) {
               foodCheck.addEventListener("click", () => onLineFood(receipt.id, line.id, !(line.isFood ?? false)));
             } else {
@@ -541,13 +541,17 @@ namespace ReceiptRing.UI {
       return names.length > 0 ? names.join(", ") : "Assign ▾";
     }
 
-    private getFoodCheckIcon(isFood: boolean): string {
-      // Filled circle for checked, outline for unchecked
-      const strokeWidth = isFood ? "0" : "1.6";
-      const fill = isFood ? "currentColor" : "none";
-      return `<svg viewBox="0 0 24 24" fill="${fill}" xmlns="http://www.w3.org/2000/svg" class="food-check-icon">
-        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="${strokeWidth}"/>
-      </svg>`;
+    // Static so other views of food-flaggable rows (e.g. the budgeting
+    // transaction list) render the identical control.
+    // A bare outlined circle did not read as something you could click, and at
+    // 16px on a dark panel it was easy to miss entirely. Draw an actual
+    // checkbox: a rounded square that fills in and gains a tick when checked.
+    static getFoodCheckIcon(isFood: boolean): string {
+      const box = isFood
+        ? `<rect x="3" y="3" width="18" height="18" rx="5" fill="currentColor"/>
+           <path d="m7.5 12.4 3 3 6-6.5" fill="none" stroke="var(--surface)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`
+        : `<rect x="3.9" y="3.9" width="16.2" height="16.2" rx="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/>`;
+      return `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" class="food-check-icon" aria-hidden="true">${box}</svg>`;
     }
   }
 }

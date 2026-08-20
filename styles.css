@@ -1378,6 +1378,10 @@ input[type="number"] {
   color: var(--accent);
 }
 
+.settings-status.is-error {
+  color: var(--red);
+}
+
 .settings-note code {
   padding: 1px 5px;
   border: 1px solid var(--border);
@@ -1814,19 +1818,6 @@ input[type="number"] {
   gap: 2px;
 }
 
-.transaction-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 4px;
-  border-bottom: 1px solid var(--border);
-}
-
-.transaction-row:last-child {
-  border-bottom: none;
-}
-
 .transaction-main {
   display: flex;
   flex-direction: column;
@@ -1846,10 +1837,55 @@ input[type="number"] {
   color: var(--ink-3);
 }
 
+/* Fixed width and right-aligned so the amounts form a straight column instead
+   of ending wherever each string happens to run out. */
 .transaction-amount {
+  flex-shrink: 0;
+  min-width: 96px;
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   color: var(--ink);
+  text-align: right;
   white-space: nowrap;
+}
+
+/* Date, category and any status tags share one line under the description. */
+.transaction-submeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.transaction-tag-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.transaction-tag-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.transaction-tag-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* An attached receipt is the one status worth spotting from across the list,
+   so it takes the accent and the row gets an edge marker to match. */
+.transaction-tag.is-receipt {
+  gap: 5px;
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.transaction-row.has-receipt {
+  box-shadow: inset 2px 0 0 var(--accent);
+  padding-left: 10px;
 }
 
 /* --- Rent entries --------------------------------------------------------- */
@@ -2078,14 +2114,191 @@ input[type="number"] {
   font-size: 0.95rem;
 }
 
+/* ============ Education expenses (529) ============ */
+/* This whole block previously had no rules at all, so the stat cards stacked as
+   full-width blocks at the 34px .stat-value size and the section headers, food
+   rows and actions sat flush against the panel edge with nothing lining up. */
+.education-expenses-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.expense-stat {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--well);
+}
+
+/* Three across, so the shared 34px .stat-value would overflow its card. */
+.education-expenses-stats .stat-value {
+  font-size: 22px;
+  color: var(--ink);
+}
+
+.expense-stat.stat-combined {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
+.education-expenses-stats .stat-combined .stat-value {
+  color: var(--accent);
+}
+
+.education-sections {
+  display: grid;
+  gap: 14px;
+}
+
+.education-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.education-section .section-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.education-section .section-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+}
+
+.section-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ink-3);
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 140ms ease, color 140ms ease;
+}
+
+.section-toggle:hover {
+  color: var(--accent);
+}
+
+.section-toggle[aria-expanded="false"] {
+  transform: rotate(-90deg);
+}
+
+.section-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Collapsing hides the rows and the section's own actions, but never the empty
+   state, which is toggled independently by the renderer. */
+.education-section.is-collapsed .section-content,
+.education-section.is-collapsed .section-actions {
+  display: none;
+}
+
+.education-section .section-content {
+  display: grid;
+  gap: 2px;
+  padding: 6px 14px;
+}
+
+.education-section .section-content:empty {
+  padding: 0;
+}
+
+.education-section .section-actions {
+  display: flex;
+  justify-content: flex-start;
+  padding: 4px 14px 12px;
+}
+
+.education-section .empty-state {
+  padding: 14px;
+}
+
+.food-item-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.food-item-row:last-child {
+  border-bottom: none;
+}
+
+.food-item-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.food-item-store {
+  flex-shrink: 0;
+  max-width: 45%;
+  color: var(--ink-3);
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Same fixed column as the transaction list so the two lists read as one set
+   of numbers rather than two ragged ones. */
+.food-item-amount {
+  flex-shrink: 0;
+  min-width: 96px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  text-align: right;
+}
+
+/* A reimbursement that cancels out food spend, rather than more spending. */
+.food-item-row.is-credit .food-item-amount {
+  color: var(--accent);
+}
+
+@media (max-width: 720px) {
+  .education-expenses-stats {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ============ Transaction Row Enhancements ============ */
 
 .transaction-row {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  padding: 12px 0;
+  padding: 10px 0;
   border-bottom: 1px solid var(--border);
   transition: background 120ms ease;
 }
@@ -2094,24 +2307,185 @@ input[type="number"] {
   border-bottom: none;
 }
 
+/* The description takes the slack so the controls stay in a fixed cluster on
+   the right. Without it, space-between scattered them across the row and the
+   food checkbox floated in the middle with nothing to attach it to. */
+.transaction-main {
+  flex: 1 1 auto;
+}
+
 .transaction-row.is-drag-over {
   background: var(--accent-soft);
   border-bottom-color: var(--accent-border);
 }
 
-.transaction-link-icon {
-  display: inline-flex;
+.transaction-actions {
+  display: flex;
   align-items: center;
-  width: 16px;
-  height: 16px;
+  gap: 8px;
   flex-shrink: 0;
-  color: var(--accent);
-  margin-left: 8px;
 }
 
-.transaction-link-icon svg {
-  width: 100%;
-  height: 100%;
+.transaction-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.transaction-tag {
+  display: inline-flex;
+  align-items: center;
+  max-width: 180px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.transaction-tag.is-rent {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* A checkbox with its label attached, so the control says what ticking it
+   does. The bare icon button used on receipt lines has a column header to
+   explain it; a bank row does not. */
+.txn-food-toggle {
+  width: auto;
+  height: 26px;
+  gap: 6px;
+  padding: 0 9px 0 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink-3);
+}
+
+.txn-food-toggle .food-check-icon {
+  width: 14px;
+  height: 14px;
+  color: inherit;
+}
+
+.txn-food-label {
+  font-size: 0.75rem;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+.txn-food-toggle:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  color: var(--ink);
+}
+
+.txn-food-toggle.is-on {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* --- Per-transaction menu ------------------------------------------------- */
+.txn-menu {
+  position: relative;
+}
+
+.txn-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.txn-menu-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.txn-menu-trigger:hover,
+.txn-menu[open] .txn-menu-trigger {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+.txn-menu-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.txn-menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  min-width: 210px;
+  padding: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-card);
+}
+
+.txn-menu-item {
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.txn-menu-item:hover {
+  background: var(--surface-3);
+}
+
+.txn-menu-item.is-danger {
+  color: var(--ink-2);
+}
+
+.txn-menu-item.is-danger:hover {
+  color: #ff9a8b;
+}
+
+.txn-menu-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Keeps the file picker reachable by the menu without showing an input nobody
+   is meant to click directly. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* ============ Receipt Cards in History - Draggable ============ */

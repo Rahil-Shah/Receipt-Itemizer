@@ -72,9 +72,18 @@ namespace ReceiptRing.Services {
     };
   }
 
+  export interface FoodSummaryTransaction {
+    transactionId: string;
+    description: string | null;
+    amount: number;
+    date: string;
+  }
+
   export interface FoodSummary {
     foodTotal: number;
     foodItems: FoodSummaryItem[];
+    // Whole bank transactions flagged as food in the budgeting view.
+    foodTransactions: FoodSummaryTransaction[];
   }
 
   export class ReceiptApiService {

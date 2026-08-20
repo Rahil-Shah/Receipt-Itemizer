@@ -113,6 +113,7 @@
                   </svg>
                   Camera
                 </button>
+                <button class="btn btn-secondary" id="pasteJsonButton" type="button">Paste JSON</button>
                 <button class="btn btn-primary" id="parseButton" type="button">Itemize receipt</button>
                 <button class="btn btn-ghost" id="clearButton" type="button">Clear</button>
               </div>
@@ -250,16 +251,6 @@
             </div>
           </section>
 
-          <section class="panel" aria-label="Rent payments">
-            <header class="panel-header">
-              <h2>Rent payments</h2>
-              <button class="btn btn-primary btn-small" id="addRentEntryButton" type="button">Add rent</button>
-            </header>
-            <div class="panel-body">
-              <div class="rent-entries-list" id="rentEntriesList"></div>
-            </div>
-          </section>
-
           <section class="panel" aria-label="Education expenses (529)">
             <header class="panel-header">
               <h2>Education Expenses</h2>
@@ -301,7 +292,7 @@
                       Rent Payments
                     </h3>
                   </header>
-                  <div class="section-content" id="rentEntriesList"></div>
+                  <div class="section-content rent-entries-list" id="rentEntriesList"></div>
                   <div class="section-actions">
                     <button class="btn btn-small btn-secondary" id="addRentEntryButton" type="button">+ Add rent payment</button>
                   </div>
@@ -325,6 +316,13 @@
               <p class="bank-status" id="bankStatus"></p>
               <div class="bank-connections" id="bankConnections"></div>
               <div class="transactions-list" id="transactionsList"></div>
+              <input
+                accept="image/*"
+                class="visually-hidden"
+                id="transactionReceiptFile"
+                tabindex="-1"
+                type="file"
+              />
               <div class="empty-state hidden" id="transactionsEmpty">
                 <strong>No transactions yet</strong>
                 <span>Connect a bank to import read-only transactions.</span>
@@ -405,6 +403,29 @@
           <button class="btn btn-ghost" id="removeKeyButton" type="button">Remove key</button>
           <button class="btn btn-secondary" id="closeSettingsButton" type="button">Cancel</button>
           <button class="btn btn-primary" id="saveSettingsButton" type="button">Save settings</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop hidden" id="pasteJsonModal" role="dialog" aria-modal="true" aria-labelledby="pasteJsonTitle">
+      <section class="modal-card modal-card-wide">
+        <header class="modal-heading">
+          <h2 id="pasteJsonTitle">Paste receipt JSON</h2>
+          <p>Ran the receipt through Gemini yourself? Paste the JSON it returned and it'll be itemized here.</p>
+        </header>
+        <div class="field">
+          <label class="field-label" for="pasteJsonText">Receipt JSON</label>
+          <textarea
+            id="pasteJsonText"
+            rows="12"
+            spellcheck="false"
+            placeholder='{"storeName": "...", "subtotal": 0, "tax": 0, "total": 0, "items": [...]}'
+          ></textarea>
+          <p class="settings-status" id="pasteJsonStatus"></p>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="closePasteJsonButton" type="button">Cancel</button>
+          <button class="btn btn-primary" id="importPasteJsonButton" type="button">Import</button>
         </div>
       </section>
     </div>

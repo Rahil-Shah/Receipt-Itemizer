@@ -53,6 +53,12 @@ namespace ReceiptRing.UI {
     removeKeyButton: HTMLButtonElement;
     closeSettingsButton: HTMLButtonElement;
     saveSettingsButton: HTMLButtonElement;
+    pasteJsonButton: HTMLButtonElement;
+    pasteJsonModal: HTMLElement;
+    pasteJsonText: HTMLTextAreaElement;
+    pasteJsonStatus: HTMLElement;
+    closePasteJsonButton: HTMLButtonElement;
+    importPasteJsonButton: HTMLButtonElement;
     authOverlay: HTMLElement;
     authForm: HTMLFormElement;
     authTitle: HTMLElement;
@@ -75,6 +81,7 @@ namespace ReceiptRing.UI {
     bankConnections: HTMLElement;
     transactionsList: HTMLElement;
     transactionsEmpty: HTMLElement;
+    transactionReceiptFile: HTMLInputElement;
     rentEntryModal: HTMLElement;
     rentEntryDate: HTMLInputElement;
     rentEntryAmount: HTMLInputElement;
@@ -84,6 +91,7 @@ namespace ReceiptRing.UI {
     rentEntrySaveButton: HTMLButtonElement;
     receiptLinkModal: HTMLElement;
     receiptLinkList: HTMLElement;
+    receiptLinkEmpty: HTMLElement;
     receiptLinkCancelButton: HTMLButtonElement;
     educationFoodTotal: HTMLElement;
     educationRentTotal: HTMLElement;
@@ -155,6 +163,12 @@ namespace ReceiptRing.UI {
         removeKeyButton: this.getElement("#removeKeyButton", HTMLButtonElement),
         closeSettingsButton: this.getElement("#closeSettingsButton", HTMLButtonElement),
         saveSettingsButton: this.getElement("#saveSettingsButton", HTMLButtonElement),
+        pasteJsonButton: this.getElement("#pasteJsonButton", HTMLButtonElement),
+        pasteJsonModal: this.getElement("#pasteJsonModal", HTMLElement),
+        pasteJsonText: this.getElement("#pasteJsonText", HTMLTextAreaElement),
+        pasteJsonStatus: this.getElement("#pasteJsonStatus", HTMLElement),
+        closePasteJsonButton: this.getElement("#closePasteJsonButton", HTMLButtonElement),
+        importPasteJsonButton: this.getElement("#importPasteJsonButton", HTMLButtonElement),
         authOverlay: this.getElement("#authOverlay", HTMLElement),
         authForm: this.getElement("#authForm", HTMLFormElement),
         authTitle: this.getElement("#authTitle", HTMLElement),
@@ -176,6 +190,7 @@ namespace ReceiptRing.UI {
         bankStatus: this.getElement("#bankStatus", HTMLElement),
         bankConnections: this.getElement("#bankConnections", HTMLElement),
         transactionsList: this.getElement("#transactionsList", HTMLElement),
+        transactionReceiptFile: this.getElement("#transactionReceiptFile", HTMLInputElement),
         transactionsEmpty: this.getElement("#transactionsEmpty", HTMLElement),
         addRentEntryButton: this.getElement("#addRentEntryButton", HTMLButtonElement),
         rentEntriesList: this.getElement("#rentEntriesList", HTMLElement),
@@ -188,6 +203,7 @@ namespace ReceiptRing.UI {
         rentEntrySaveButton: this.getElement("#rentEntrySaveButton", HTMLButtonElement),
         receiptLinkModal: this.getElement("#receiptLinkModal", HTMLElement),
         receiptLinkList: this.getElement("#receiptLinkList", HTMLElement),
+        receiptLinkEmpty: this.getElement("#receiptLinkEmpty", HTMLElement),
         receiptLinkCancelButton: this.getElement("#receiptLinkCancelButton", HTMLButtonElement),
         educationFoodTotal: this.getElement("#educationFoodTotal", HTMLElement),
         educationRentTotal: this.getElement("#educationRentTotal", HTMLElement),
