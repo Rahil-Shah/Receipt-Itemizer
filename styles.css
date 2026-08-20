@@ -597,9 +597,13 @@ input[type="number"] {
   display: none;
 }
 
+/* Five columns, matching the five cells every row renders: label, food check,
+   assignment, amount, ignore. The grid used to declare only four, so the ignore
+   button wrapped onto an implicit second row and every cell after the label sat
+   under the wrong header -- the food checkbox landed under "Assigned to". */
 .table-row {
   display: grid;
-  grid-template-columns: minmax(150px, 1.2fr) minmax(140px, 0.85fr) minmax(84px, 0.4fr) 36px;
+  grid-template-columns: minmax(150px, 1.2fr) 44px minmax(140px, 0.85fr) minmax(84px, 0.4fr) 36px;
   gap: 10px;
   align-items: center;
   min-height: 48px;
@@ -630,6 +634,16 @@ input[type="number"] {
 
 .amount-head {
   text-align: right;
+}
+
+.food-head {
+  text-align: center;
+}
+
+/* Centred in its own narrow column so the ticks form a straight line under the
+   header rather than hugging the label text. */
+.table-row .line-food-check {
+  justify-self: center;
 }
 
 .table-row.is-ignored {
@@ -1459,8 +1473,12 @@ input[type="number"] {
     grid-template-columns: 1fr;
   }
 
+  /* Narrow screens stack the label over its controls: row 1 is the item name
+     across the full width, row 2 is food / assignment / amount / ignore. Every
+     cell is placed explicitly because the header (which is what normally
+     explains the column order) is hidden here. */
   .table-row {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: auto 1fr auto auto;
     gap: 6px 10px;
     padding: 10px 12px;
   }
@@ -1471,18 +1489,28 @@ input[type="number"] {
 
   .table-row .line-label {
     grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .table-row .line-food-check {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
   }
 
   .assign-cell {
-    grid-column: 1;
+    grid-column: 2;
+    grid-row: 2;
   }
 
   .amount-cell {
-    grid-column: 2;
+    grid-column: 3;
+    grid-row: 2;
   }
 
   .delete-row {
-    grid-column: 2;
+    grid-column: 4;
+    grid-row: 2;
     justify-self: end;
   }
 }
