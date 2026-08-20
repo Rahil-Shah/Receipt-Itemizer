@@ -138,7 +138,7 @@ const receiptInclude = {
   },
   lines: {
     orderBy: { sortOrder: "asc" },
-    include: { assignments: { include: { person: true } } }
+    include: { assignments: { include: { person: { include: { accountPerson: true } } } } }
   }
 };
 
@@ -570,7 +570,7 @@ app.patch("/api/receipts/:receiptId/lines/:lineId", requireAuth, async (req, res
     // Verify line belongs to this receipt
     const line = await prisma.receiptLine.findFirst({
       where: { id: req.params.lineId, receiptId: req.params.receiptId },
-      include: { assignments: { include: { person: true } } }
+      include: { assignments: { include: { person: { include: { accountPerson: true } } } } }
     });
 
     if (!line) {
@@ -581,7 +581,7 @@ app.patch("/api/receipts/:receiptId/lines/:lineId", requireAuth, async (req, res
     const updated = await prisma.receiptLine.update({
       where: { id: req.params.lineId },
       data: { isFood: body.isFood },
-      include: { assignments: { include: { person: true } } }
+      include: { assignments: { include: { person: { include: { accountPerson: true } } } } }
     });
 
     res.json(serializeReceiptLineWithFood(updated));
