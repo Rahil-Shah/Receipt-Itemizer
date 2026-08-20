@@ -95,6 +95,9 @@ model BankTransaction {
   description      String?
   amount           Decimal     @db.Decimal(10, 2)
   category         String?
+  // Marked by the user in the budgeting view so a whole transaction (e.g. a
+  // dinner out) counts toward the education-expense food total.
+  isFood           Boolean     @default(false)
   linkedReceiptId  String?     @unique
   linkedReceipt    Receipt?    @relation(fields: [linkedReceiptId], references: [id], onDelete: SetNull)
   createdAt        DateTime    @default(now())

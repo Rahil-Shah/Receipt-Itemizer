@@ -612,13 +612,25 @@ app.get("/api/receipts/food-summary", requireAuth, async (req, res) => {
       };
     }
 
-    const lines = await prisma.receiptLine.findMany({
-      where: whereClause,
-      include: { receipt: { select: { id: true, storeName: true, createdAt: true } } },
-      orderBy: { createdAt: "desc" }
-    });
+    // Whole bank transactions can be flagged as food too (a dinner out with
+    // no itemized receipt). Their dates are calendar dates stored as UTC
+    // midnight (see server/bank.mjs), so the month window must be UTC —
+    // a local-time window would clip the first or last day of the month.
+    let txnWhere = { isFood: true, account: { connection: { userId: req.userId } } };
+    if (req.query.month) {
+      const parsed = parseMonthParam(req.query.month);
+      const { start, end } = getUtcMonthRange(parsed.year, parsed.month);
+      txnWhere.date = { gte: start, lt: end };
+    }
 
-    const foodTotal = lines.reduce((sum, line) => sum + Number(line.amount), 0);
+    const [lines, foodTxns] = await Promise.all([
+      prisma.receiptLine.findMany({
+        where: whereClause,
+        include: { receipt: { select: { id: true, storeName: true, createdAt: true } } },
+        orderBy: { createdAt: "desc" }
+      }),
+      prisma.bankTransaction.findMany({ where: txnWhere, orderBy: { date: "desc" } })
+    ]);
 
     const foodItems = lines.map((line) => ({
       lineId: line.id,
@@ -631,7 +643,24 @@ app.get("/api/receipts/food-summary", requireAuth, async (req, res) => {
       }
     }));
 
-    res.json({ foodTotal, foodItems });
+    // Outflows are stored negative and inflows positive (see server/bank.mjs),
+    // so negating gives a food-spend figure: money spent on food becomes a
+    // positive amount, while an inflow flagged as food -- a friend Zelling back
+    // their share of a meal -- becomes negative and offsets that spend. Taking
+    // the absolute value here would have counted reimbursements as extra
+    // spending instead of crediting them back.
+    const foodTransactions = foodTxns.map((txn) => ({
+      transactionId: txn.id,
+      description: txn.description,
+      amount: -Number(txn.amount),
+      date: txn.date.toISOString().slice(0, 10)
+    }));
+
+    const foodTotal =
+      lines.reduce((sum, line) => sum + Number(line.amount), 0) +
+      foodTransactions.reduce((sum, txn) => sum + txn.amount, 0);
+
+    res.json({ foodTotal, foodItems, foodTransactions });
   } catch (error) {
     console.error("Failed to get food summary:", error);
     res.status(500).json({ error: "Failed to get food summary." });

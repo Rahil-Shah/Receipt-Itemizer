@@ -37,7 +37,12 @@ namespace ReceiptRing.Services {
     description: string | null;
     amount: number;
     category: string | null;
+    isFood: boolean;
     account: string | null;
+    // The receipt attached to this transaction, if any. Sent on every list so
+    // the paperclip survives a reload instead of only appearing for the rest of
+    // the session in which the link was made.
+    linkedReceiptId: string | null;
   }
 
   export interface LinkResult {
@@ -121,6 +126,15 @@ namespace ReceiptRing.Services {
       const response = await this.request("/api/transactions");
       if (!response.ok) throw new Error(await this.parseError(response));
       return (await response.json()) as BankTransaction[];
+    }
+
+    async updateTransactionFood(id: string, isFood: boolean): Promise<void> {
+      const response = await this.request(`/api/bank-transactions/${encodeURIComponent(id)}/food`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isFood })
+      });
+      if (!response.ok) throw new Error(await this.parseError(response));
     }
   }
 }

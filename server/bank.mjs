@@ -456,6 +456,7 @@ export function createBank(prisma) {
             description: txn.description,
             amount: Number(txn.amount),
             category: txn.category,
+            isFood: txn.isFood,
             account: txn.account?.name ?? null,
             linkedReceiptId: txn.linkedReceiptId
           }))
@@ -463,6 +464,33 @@ export function createBank(prisma) {
       } catch (error) {
         console.error("Failed to list transactions:", error);
         res.status(500).json({ error: "Could not load transactions." });
+      }
+    });
+
+    // PATCH /api/bank-transactions/:txnId/food - flag a whole transaction as
+    // food so it counts toward the education-expense food total.
+    app.patch("/api/bank-transactions/:txnId/food", requireAuth, async (req, res) => {
+      const body = req.body ?? {};
+      if (typeof body.isFood !== "boolean") {
+        return res.status(400).json({ error: "isFood must be a boolean." });
+      }
+
+      try {
+        // updateMany so the ownership check and the write are one statement —
+        // a transaction id belonging to another user is a plain 404.
+        const result = await prisma.bankTransaction.updateMany({
+          where: { id: req.params.txnId, account: { connection: { userId: req.userId } } },
+          data: { isFood: body.isFood }
+        });
+
+        if (result.count === 0) {
+          return res.status(404).json({ error: "Transaction not found." });
+        }
+
+        res.json({ success: true });
+      } catch (error) {
+        console.error("Failed to update transaction food flag:", error);
+        res.status(500).json({ error: "Could not update the transaction." });
       }
     });
   }
