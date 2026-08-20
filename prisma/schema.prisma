@@ -215,6 +215,10 @@ model RentEntry {
   date          DateTime
   photoData     String?
   photoMimeType String?
+  // Set when the entry was created straight from a bank transaction in the
+  // budgeting view. It is what lets that row keep showing "Rent" after a
+  // reload, and what the "remove rent payment" action looks the entry up by.
+  bankTransactionId String? @unique
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

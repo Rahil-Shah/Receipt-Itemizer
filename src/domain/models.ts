@@ -88,8 +88,11 @@ namespace ReceiptRing.Domain {
     month: number;
     amount: number;
     propertyName?: string;
+    // Calendar date, "YYYY-MM-DD".
     date: string;
-    photoUrl?: string;
-    photoMimeType?: string;
+    hasPhoto?: boolean;
+    // Set when the entry was logged from a bank transaction in the budgeting
+    // view, so that row can show it is already counted as rent.
+    bankTransactionId?: string | null;
   }
 }

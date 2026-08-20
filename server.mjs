@@ -542,6 +542,7 @@ function serializeRentEntry(entry) {
     propertyName: entry.propertyName,
     date: entry.date.toISOString().slice(0, 10),
     hasPhoto: Boolean(entry.photoMimeType),
+    bankTransactionId: entry.bankTransactionId ?? null,
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt
   };
@@ -742,7 +743,7 @@ app.delete("/api/receipts/:receiptId/link-transaction", requireAuth, async (req,
 // POST /api/rent-entries - Create rent entry
 app.post("/api/rent-entries", requireAuth, async (req, res) => {
   const body = req.body ?? {};
-  const { month, year, amount, propertyName, date, photoDataUrl } = body;
+  const { month, year, amount, propertyName, date, photoDataUrl, bankTransactionId } = body;
 
   // Validate required fields
   if (typeof month !== "number" || month < 1 || month > 12) {
@@ -760,6 +761,9 @@ app.post("/api/rent-entries", requireAuth, async (req, res) => {
   if (propertyName !== undefined && propertyName !== null && !isShortString(propertyName)) {
     return res.status(400).json({ error: "propertyName must be a short string." });
   }
+  if (bankTransactionId !== undefined && bankTransactionId !== null && !isShortString(bankTransactionId)) {
+    return res.status(400).json({ error: "bankTransactionId must be a short string." });
+  }
 
   const photo = photoDataUrl ? parseImageDataUrl(photoDataUrl) : null;
   if (photoDataUrl && !photo) {
@@ -770,6 +774,25 @@ app.post("/api/rent-entries", requireAuth, async (req, res) => {
   }
 
   try {
+    // A transaction may only back a rent entry if it is the caller's own, so a
+    // guessed id cannot attach someone else's spending to this account.
+    if (bankTransactionId) {
+      const owned = await prisma.bankTransaction.findFirst({
+        where: { id: bankTransactionId, account: { connection: { userId: req.userId } } },
+        select: { id: true }
+      });
+      if (!owned) {
+        return res.status(404).json({ error: "Bank transaction not found." });
+      }
+      const alreadyLogged = await prisma.rentEntry.findUnique({
+        where: { bankTransactionId },
+        select: { id: true }
+      });
+      if (alreadyLogged) {
+        return res.status(400).json({ error: "This transaction is already logged as rent." });
+      }
+    }
+
     // Check unique constraint: (userId, year, month)
     const existing = await prisma.rentEntry.findUnique({
       where: { userId_year_month: { userId: req.userId, year, month } }
@@ -790,7 +813,8 @@ app.post("/api/rent-entries", requireAuth, async (req, res) => {
         propertyName: propertyName ?? null,
         date: entryDate,
         photoData: photo?.data ?? null,
-        photoMimeType: photo?.mimeType ?? null
+        photoMimeType: photo?.mimeType ?? null,
+        bankTransactionId: bankTransactionId || null
       }
     });
 
@@ -861,10 +885,18 @@ app.patch("/api/rent-entries/:entryId", requireAuth, async (req, res) => {
     }
 
     if (body.date !== undefined && body.date !== null) {
-      if (typeof body.date !== "string") {
+      // The month/year columns must follow the date, or an entry moved to a
+      // different month would keep counting under its old one.
+      const match = typeof body.date === "string" && /^(\d{4})-(\d{2})-(\d{2})/.exec(body.date);
+      if (!match) {
         return res.status(400).json({ error: "date must be a valid ISO string." });
       }
       updateData.date = new Date(body.date);
+      updateData.year = parseInt(match[1], 10);
+      updateData.month = parseInt(match[2], 10);
+      if (updateData.month < 1 || updateData.month > 12) {
+        return res.status(400).json({ error: "date must contain a valid month." });
+      }
     }
 
     if (body.photoDataUrl !== undefined && body.photoDataUrl !== null) {
@@ -897,6 +929,11 @@ app.patch("/api/rent-entries/:entryId", requireAuth, async (req, res) => {
 
     res.json(serializeRentEntry(updated));
   } catch (error) {
+    // P2002 = unique (userId, year, month) — the entry was moved into a month
+    // that already has one.
+    if (error?.code === "P2002") {
+      return res.status(400).json({ error: "A rent entry already exists for this month." });
+    }
     console.error("Failed to update rent entry:", error);
     res.status(500).json({ error: "Failed to update rent entry." });
   }

@@ -53,9 +53,9 @@ namespace ReceiptRing.UI {
 
         const photoIndicator = document.createElement("span");
         photoIndicator.className = "rent-entry-photo-indicator";
-        if (entry.photoUrl) {
+        if (entry.hasPhoto) {
           photoIndicator.textContent = "📎";
-          photoIndicator.setAttribute("title", `Proof of payment attached (${entry.photoMimeType || "image"})`);
+          photoIndicator.setAttribute("title", "Proof of payment attached");
         }
 
         meta.append(photoIndicator);
@@ -114,17 +114,18 @@ namespace ReceiptRing.UI {
       }
     }
 
+    // The entry date is a calendar date ("YYYY-MM-DD"); build it from its
+    // parts so it isn't read as UTC midnight and shown a day early west of
+    // UTC (see AppController.formatTransactionDate for the same trap).
     private formatDate(dateString: string): string {
-      try {
-        const date = new Date(dateString);
-        return date.toLocaleDateString(undefined, {
-          month: "short",
-          day: "numeric",
-          year: "numeric"
-        });
-      } catch {
-        return dateString;
-      }
+      const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateString);
+      if (!match) return dateString;
+      const [, year, month, day] = match;
+      return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric"
+      });
     }
   }
 }

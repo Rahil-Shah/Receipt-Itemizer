@@ -1197,7 +1197,7 @@ namespace ReceiptRing.App {
             amount,
             propertyName: propertyName || undefined,
             date,
-            photoUrl: photoDataUrl
+            photoDataUrl
           });
         } else {
           await this.rentEntryApiService.create(payload);
