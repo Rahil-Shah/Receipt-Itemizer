@@ -537,6 +537,17 @@ namespace ReceiptRing.UI {
       panel.style.position = "fixed";
       panel.style.maxHeight = "";
       panel.style.width = `${Math.max(230, summaryRect.width)}px`;
+
+      // `position: fixed` is only viewport-relative while nothing up the tree
+      // establishes a containing block, and a `transform` anywhere above --
+      // including the identity one an animation fill mode can leave behind --
+      // quietly re-bases top/left onto that ancestor instead. Rather than trust
+      // the tree to stay clean, park the panel at 0,0 and ask the browser where
+      // that actually landed; subtracting the answer makes the coordinates
+      // below mean viewport pixels either way.
+      panel.style.top = "0px";
+      panel.style.left = "0px";
+      const origin = panel.getBoundingClientRect();
       const panelHeight = panel.scrollHeight;
 
       const viewportHeight = window.innerHeight;
@@ -555,11 +566,11 @@ namespace ReceiptRing.UI {
         top = Math.max(margin, summaryRect.top - margin - Math.min(panelHeight, spaceAbove));
       }
 
-      const panelWidth = panel.getBoundingClientRect().width;
+      const panelWidth = origin.width;
       const left = Math.max(margin, Math.min(summaryRect.left, viewportWidth - margin - panelWidth));
 
-      panel.style.top = `${top}px`;
-      panel.style.left = `${left}px`;
+      panel.style.top = `${top - origin.top}px`;
+      panel.style.left = `${left - origin.left}px`;
       panel.style.overflowY = "auto";
       // Only now is it safe to paint: the panel is over its own summary.
       panel.classList.add("is-anchored");

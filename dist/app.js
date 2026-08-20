@@ -2023,6 +2023,9 @@ var ReceiptRing;
                 panel.style.position = "fixed";
                 panel.style.maxHeight = "";
                 panel.style.width = `${Math.max(230, summaryRect.width)}px`;
+                panel.style.top = "0px";
+                panel.style.left = "0px";
+                const origin = panel.getBoundingClientRect();
                 const panelHeight = panel.scrollHeight;
                 const viewportHeight = window.innerHeight;
                 const viewportWidth = window.innerWidth;
@@ -2037,10 +2040,10 @@ var ReceiptRing;
                     panel.style.maxHeight = `${Math.max(0, spaceAbove)}px`;
                     top = Math.max(margin, summaryRect.top - margin - Math.min(panelHeight, spaceAbove));
                 }
-                const panelWidth = panel.getBoundingClientRect().width;
+                const panelWidth = origin.width;
                 const left = Math.max(margin, Math.min(summaryRect.left, viewportWidth - margin - panelWidth));
-                panel.style.top = `${top}px`;
-                panel.style.left = `${left}px`;
+                panel.style.top = `${top - origin.top}px`;
+                panel.style.left = `${left - origin.left}px`;
                 panel.style.overflowY = "auto";
                 panel.classList.add("is-anchored");
             }

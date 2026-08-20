@@ -272,7 +272,13 @@ h2 {
 }
 
 .tab-view {
-  animation: view-in 260ms ease both;
+  /* `backwards`, never `forwards`/`both`: view-in ends on transform:
+     translateY(0), and a fill mode that retains it leaves an identity transform
+     applied for the life of the view. Any transform other than `none` makes the
+     element a containing block for position: fixed descendants, which re-based
+     the assignment popup's viewport coordinates onto this box and stranded it
+     further above its row the further the receipt was scrolled. */
+  animation: view-in 260ms ease backwards;
 }
 
 .tab-view.hidden {
