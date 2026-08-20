@@ -1850,3 +1850,252 @@ input[type="number"] {
   gap: 6px;
   white-space: nowrap;
 }
+
+/* ============ Food Item Selection Checkboxes ============ */
+
+.line-food-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.line-food-check:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.food-check-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--accent);
+  transition: color 120ms ease, opacity 120ms ease;
+}
+
+.line-food-check:hover:not(:disabled) .food-check-icon {
+  color: var(--accent-strong);
+}
+
+.line-food-check:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ============ History Line Styling ============ */
+
+.history-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.history-line:last-child {
+  border-bottom: none;
+}
+
+.history-line > span:first-child {
+  flex: 1;
+}
+
+.history-line .line-food-check {
+  margin: 0 4px;
+}
+
+/* ============ Receipt Link Modal ============ */
+
+.receipt-link-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.receipt-link-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+  text-align: left;
+}
+
+.receipt-link-item:hover {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+}
+
+.receipt-link-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.receipt-link-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.receipt-link-main > strong {
+  font-size: 0.95rem;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.receipt-link-meta {
+  font-size: 0.8rem;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.receipt-link-amount {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.receipt-link-thumb {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.receipt-link-empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--ink-3);
+  font-size: 0.95rem;
+}
+
+/* ============ Transaction Row Enhancements ============ */
+
+.transaction-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  transition: background 120ms ease;
+}
+
+.transaction-row:last-child {
+  border-bottom: none;
+}
+
+.transaction-row.is-drag-over {
+  background: var(--accent-soft);
+  border-bottom-color: var(--accent-border);
+}
+
+.transaction-link-icon {
+  display: inline-flex;
+  align-items: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--accent);
+  margin-left: 8px;
+}
+
+.transaction-link-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* ============ Receipt Cards in History - Draggable ============ */
+
+.history-card {
+  cursor: grab;
+  transition: opacity 120ms ease;
+}
+
+.history-card:active {
+  cursor: grabbing;
+  opacity: 0.8;
+}
+
+/* Make history card draggable */
+.history-summary {
+  user-select: none;
+}
+
+/* ============ Toast Notifications ============ */
+
+.toast-container {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  padding: 12px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  max-width: 400px;
+  word-wrap: break-word;
+  opacity: 0;
+  transform: translateX(100%);
+  transition: all 300ms ease;
+  white-space: normal;
+}
+
+.toast-visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.toast-success {
+  background-color: #10b981;
+  color: white;
+}
+
+.toast-error {
+  background-color: #ef4444;
+  color: white;
+}
+
+.toast-info {
+  background-color: #3b82f6;
+  color: white;
+}
+
+@media (max-width: 600px) {
+  .toast-container {
+    right: 8px;
+    left: 8px;
+  }
+
+  .toast {
+    max-width: 100%;
+  }
+}
