@@ -313,6 +313,7 @@ app.post("/api/receipts", requireAuth, async (req, res) => {
             label: line.label,
             amount: line.amount ?? 0,
             ignored: Boolean(line.ignored),
+            isFood: Boolean(line.isFood),
             sortOrder: sortOrder++
           }
         });
