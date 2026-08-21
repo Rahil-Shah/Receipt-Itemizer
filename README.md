@@ -1,6 +1,6 @@
 # Receipt Itemizer 🧾✨
 
-Receipt Itemizer is a modern, responsive web application for splitting receipt costs from a photo, line by line. Using the Google Gemini 3.7 Flash API, it extracts line items, assigns costs to different people, and handles tax adjustments automatically.
+Receipt Itemizer is a modern, responsive web application for splitting receipt costs from a photo, line by line. Using the Google Gemini 3.5 Flash Lite API, it extracts line items, assigns costs to different people, and handles tax adjustments automatically.
 
 ---
 
@@ -25,7 +25,7 @@ To use the advanced AI features of Gemini for parsing receipt items, the applica
 
 ## 🚀 Key Features
 
-- **AI Receipt Parsing**: Sends the receipt photo to the Gemini 3.7 Flash API to reliably extract items, prices, discounts, and totals.
+- **AI Receipt Parsing**: Sends the receipt photo to the Gemini 3.5 Flash Lite API to reliably extract items, prices, discounts, and totals.
 - **Multiple Assignment Modes**:
   - **Split Evenly**: Distribute the cost of items equally among selected people.
   - **Split by Percentage**: Allocate item shares based on custom percentages.
