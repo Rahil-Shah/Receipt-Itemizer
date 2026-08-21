@@ -17,7 +17,7 @@ const MODEL_RE = /^[A-Za-z0-9._-]+$/;
 // strict allowlist blocks URL/query injection and stray control characters,
 // and caps length to bound abuse.
 const API_KEY_RE = /^[A-Za-z0-9_-]{20,200}$/;
-const DEFAULT_MODEL = "gemini-2.5-flash";
+const DEFAULT_MODEL = "gemini-3.5-flash-lite";
 // Formats Gemini accepts for inline image data. An open /^image\// test let
 // "image/" plus arbitrary trailing text through to Google verbatim.
 const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]);
