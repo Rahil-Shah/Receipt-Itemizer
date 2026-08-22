@@ -1340,6 +1340,7 @@ var ReceiptRing;
                     parseButton: this.getElement("#parseButton", HTMLButtonElement),
                     clearButton: this.getElement("#clearButton", HTMLButtonElement),
                     receiptLinesList: this.getElement("#receiptLinesList", HTMLElement),
+                    selectAllLines: this.getElement("#selectAllLines", HTMLInputElement),
                     emptyState: this.getElement("#emptyState", HTMLElement),
                     unassignedCount: this.getElement("#unassignedCount", HTMLElement),
                     storeNameInput: this.getElement("#storeNameInput", HTMLInputElement),
@@ -2425,6 +2426,7 @@ var ReceiptRing;
                 this.elements.clearImageButton.addEventListener("click", () => this.clearImage());
                 this.elements.parseButton.addEventListener("click", () => this.itemizeReceiptText());
                 this.elements.clearButton.addEventListener("click", () => this.clearReceipt());
+                this.elements.selectAllLines.addEventListener("change", () => this.toggleSelectAll());
                 this.elements.openCameraButton.addEventListener("click", () => void this.openCamera());
                 this.elements.closeCameraButton.addEventListener("click", () => this.closeCamera());
                 this.elements.capturePhotoButton.addEventListener("click", () => void this.captureCameraPhoto());
@@ -2606,6 +2608,14 @@ var ReceiptRing;
                 };
                 this.splitWorkspaceView.renderLines(this.elements.receiptLinesList, this.receiptLines, this.assignments, this.people, this.lineModes, new Set(this.lineSelectionService.ids()), handlers);
                 this.splitWorkspaceView.renderPeople(this.elements.peopleList, this.people, handlers);
+                this.renderSelectAll();
+            }
+            renderSelectAll() {
+                const isAll = this.lineSelectionService.isAllSelected(this.receiptLines);
+                this.elements.selectAllLines.checked = isAll;
+                this.elements.selectAllLines.indeterminate =
+                    !isAll && this.lineSelectionService.isAnySelected(this.receiptLines);
+                this.elements.selectAllLines.disabled = this.receiptLines.length === 0;
             }
             renderTotals() {
                 const unassignedCount = this.splitCalculatorService.getUnassignedCount(this.receiptLines, this.assignments);
@@ -2915,6 +2925,15 @@ var ReceiptRing;
                         this.notificationService.error(message);
                     }
                 })();
+            }
+            toggleSelectAll() {
+                if (this.lineSelectionService.isAllSelected(this.receiptLines)) {
+                    this.lineSelectionService.clear();
+                }
+                else {
+                    this.lineSelectionService.selectAll(this.receiptLines);
+                }
+                this.renderWorkspace();
             }
             toggleLineSelection(lineId) {
                 this.lineSelectionService.toggle(lineId);

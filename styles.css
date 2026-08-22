@@ -647,6 +647,18 @@ input[type="number"] {
   text-align: center;
 }
 
+/* The header cell wraps its checkbox, so it needs the alignment the bare
+   checkboxes in the rows below get from the grid itself. */
+.select-head {
+  display: flex;
+  align-items: center;
+}
+
+.line-select:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
 /* Centred in its own narrow column so the ticks form a straight line under the
    header rather than hugging the label text. */
 .table-row .line-food-check {

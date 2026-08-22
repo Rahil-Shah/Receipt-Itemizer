@@ -19,6 +19,7 @@ namespace ReceiptRing.UI {
     parseButton: HTMLButtonElement;
     clearButton: HTMLButtonElement;
     receiptLinesList: HTMLElement;
+    selectAllLines: HTMLInputElement;
     emptyState: HTMLElement;
     unassignedCount: HTMLElement;
     storeNameInput: HTMLInputElement;
@@ -131,6 +132,7 @@ namespace ReceiptRing.UI {
         parseButton: this.getElement("#parseButton", HTMLButtonElement),
         clearButton: this.getElement("#clearButton", HTMLButtonElement),
         receiptLinesList: this.getElement("#receiptLinesList", HTMLElement),
+        selectAllLines: this.getElement("#selectAllLines", HTMLInputElement),
         emptyState: this.getElement("#emptyState", HTMLElement),
         unassignedCount: this.getElement("#unassignedCount", HTMLElement),
         storeNameInput: this.getElement("#storeNameInput", HTMLInputElement),

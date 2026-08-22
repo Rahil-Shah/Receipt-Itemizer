@@ -94,6 +94,7 @@ namespace ReceiptRing.App {
       this.elements.clearImageButton.addEventListener("click", () => this.clearImage());
       this.elements.parseButton.addEventListener("click", () => this.itemizeReceiptText());
       this.elements.clearButton.addEventListener("click", () => this.clearReceipt());
+      this.elements.selectAllLines.addEventListener("change", () => this.toggleSelectAll());
       this.elements.openCameraButton.addEventListener("click", () => void this.openCamera());
       this.elements.closeCameraButton.addEventListener("click", () => this.closeCamera());
       this.elements.capturePhotoButton.addEventListener("click", () => void this.captureCameraPhoto());
@@ -319,6 +320,20 @@ namespace ReceiptRing.App {
         handlers
       );
       this.splitWorkspaceView.renderPeople(this.elements.peopleList, this.people, handlers);
+      this.renderSelectAll();
+    }
+
+    /**
+     * The header tick reports on the rows below it: on when every line is
+     * selected, indeterminate when only some are. Without the middle state it
+     * claimed "nothing is selected" while a dozen rows sat ticked underneath.
+     */
+    private renderSelectAll(): void {
+      const isAll = this.lineSelectionService.isAllSelected(this.receiptLines);
+      this.elements.selectAllLines.checked = isAll;
+      this.elements.selectAllLines.indeterminate =
+        !isAll && this.lineSelectionService.isAnySelected(this.receiptLines);
+      this.elements.selectAllLines.disabled = this.receiptLines.length === 0;
     }
 
     private renderTotals(): void {
@@ -682,6 +697,18 @@ namespace ReceiptRing.App {
           this.notificationService.error(message);
         }
       })();
+    }
+
+    private toggleSelectAll(): void {
+      // Half a selection reads as "some", and the useful next step from there
+      // is taking the rest, not throwing away what is already ticked. Only a
+      // full selection clears.
+      if (this.lineSelectionService.isAllSelected(this.receiptLines)) {
+        this.lineSelectionService.clear();
+      } else {
+        this.lineSelectionService.selectAll(this.receiptLines);
+      }
+      this.renderWorkspace();
     }
 
     private toggleLineSelection(lineId: string): void {
