@@ -593,6 +593,59 @@ var ReceiptRing;
 (function (ReceiptRing) {
     var Services;
     (function (Services) {
+        class LineSelectionService {
+            constructor() {
+                this.selected = new Set();
+                this.anchorId = null;
+            }
+            get count() {
+                return this.selected.size;
+            }
+            has(lineId) {
+                return this.selected.has(lineId);
+            }
+            ids() {
+                return [...this.selected];
+            }
+            toggle(lineId) {
+                if (this.selected.has(lineId)) {
+                    this.selected.delete(lineId);
+                }
+                else {
+                    this.selected.add(lineId);
+                }
+                this.anchorId = lineId;
+            }
+            selectAll(lines) {
+                lines.forEach((line) => this.selected.add(line.id));
+            }
+            clear() {
+                this.selected.clear();
+                this.anchorId = null;
+            }
+            isAllSelected(lines) {
+                return lines.length > 0 && lines.every((line) => this.selected.has(line.id));
+            }
+            isAnySelected(lines) {
+                return lines.some((line) => this.selected.has(line.id));
+            }
+            prune(lines) {
+                const live = new Set(lines.map((line) => line.id));
+                this.selected.forEach((id) => {
+                    if (!live.has(id))
+                        this.selected.delete(id);
+                });
+                if (this.anchorId !== null && !live.has(this.anchorId))
+                    this.anchorId = null;
+            }
+        }
+        Services.LineSelectionService = LineSelectionService;
+    })(Services = ReceiptRing.Services || (ReceiptRing.Services = {}));
+})(ReceiptRing || (ReceiptRing = {}));
+var ReceiptRing;
+(function (ReceiptRing) {
+    var Services;
+    (function (Services) {
         class StorageService {
             constructor(storageKey) {
                 this.storageKey = storageKey;
@@ -2296,7 +2349,7 @@ var ReceiptRing;
       <path d="M8.6 8.2h6.8M8.6 11.6h6.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
     </svg>`;
         class AppController {
-            constructor(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, receiptImageService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView, peopleApiService, rentEntryApiService, rentEntriesView, notificationService) {
+            constructor(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, receiptImageService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, lineSelectionService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView, peopleApiService, rentEntryApiService, rentEntriesView, notificationService) {
                 this.elements = elements;
                 this.parserService = parserService;
                 this.categorizationService = categorizationService;
@@ -2309,6 +2362,7 @@ var ReceiptRing;
                 this.categoryPromptView = categoryPromptView;
                 this.splitWorkspaceView = splitWorkspaceView;
                 this.splitCalculatorService = splitCalculatorService;
+                this.lineSelectionService = lineSelectionService;
                 this.idService = idService;
                 this.receiptApiService = receiptApiService;
                 this.bankApiService = bankApiService;
@@ -2494,6 +2548,7 @@ var ReceiptRing;
                 this.receiptLines = [];
                 this.assignments = [];
                 this.lineModes.clear();
+                this.lineSelectionService.clear();
                 this.receiptImage = null;
                 this.hideOcrStatus();
             }
@@ -2509,6 +2564,7 @@ var ReceiptRing;
                 this.assignments = [];
                 this.lineModes.clear();
                 this.foodFlags.clear();
+                this.lineSelectionService.clear();
             }
             itemizeReceiptText() {
                 this.setItemsFromParse(this.parserService.parse(this.elements.receiptText.value));
@@ -2528,6 +2584,7 @@ var ReceiptRing;
                 this.renderTotals();
             }
             renderWorkspace() {
+                this.lineSelectionService.prune(this.receiptLines);
                 this.elements.emptyState.classList.toggle("hidden", this.receiptLines.length > 0);
                 this.elements.itemCount.textContent = `${this.receiptLines.length} ${this.receiptLines.length === 1 ? "line" : "lines"}`;
                 const handlers = {
@@ -3986,6 +4043,7 @@ var ReceiptRing;
     const parserService = new ReceiptRing.Services.ReceiptParserService(categorizationService, idService);
     const storageService = new ReceiptRing.Services.StorageService("receipt-ring-items");
     const splitCalculatorService = new ReceiptRing.Services.SplitCalculatorService();
+    const lineSelectionService = new ReceiptRing.Services.LineSelectionService();
     const imagePreviewService = new ReceiptRing.Services.ImagePreviewService();
     const receiptImageService = new ReceiptRing.Services.ReceiptImageService();
     const geminiService = new ReceiptRing.Services.GeminiService();
@@ -4003,7 +4061,7 @@ var ReceiptRing;
     const monthlyTrendView = new ReceiptRing.UI.MonthlyTrendView(currencyFormatService);
     const rentEntriesView = new ReceiptRing.UI.RentEntriesView(currencyFormatService);
     const authView = new ReceiptRing.UI.AuthView(elements, authApiService);
-    const controller = new ReceiptRing.App.AppController(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, receiptImageService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView, peopleApiService, rentEntryApiService, rentEntriesView, notificationService);
+    const controller = new ReceiptRing.App.AppController(elements, parserService, categorizationService, categoryRuleStorageService, storageService, currencyFormatService, imagePreviewService, receiptImageService, geminiService, categoryPromptView, splitWorkspaceView, splitCalculatorService, lineSelectionService, idService, receiptApiService, bankApiService, spendingAggregatorService, budgetRingView, monthlyTrendView, peopleApiService, rentEntryApiService, rentEntriesView, notificationService);
     let started = false;
     const startApp = () => {
         if (started)

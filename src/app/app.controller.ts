@@ -61,6 +61,7 @@ namespace ReceiptRing.App {
       private readonly categoryPromptView: UI.CategoryPromptView,
       private readonly splitWorkspaceView: UI.SplitWorkspaceView,
       private readonly splitCalculatorService: Services.SplitCalculatorService,
+      private readonly lineSelectionService: Services.LineSelectionService,
       private readonly idService: Services.IdService,
       private readonly receiptApiService: Services.ReceiptApiService,
       private readonly bankApiService: Services.BankApiService,
@@ -246,6 +247,7 @@ namespace ReceiptRing.App {
       this.receiptLines = [];
       this.assignments = [];
       this.lineModes.clear();
+      this.lineSelectionService.clear();
       this.receiptImage = null;
       this.hideOcrStatus();
     }
@@ -262,6 +264,9 @@ namespace ReceiptRing.App {
       this.assignments = [];
       this.lineModes.clear();
       this.foodFlags.clear();
+      // A new receipt means new line ids; anything still ticked belongs to the
+      // receipt that was just replaced.
+      this.lineSelectionService.clear();
     }
 
     private itemizeReceiptText(): void {
@@ -287,6 +292,10 @@ namespace ReceiptRing.App {
     }
 
     private renderWorkspace(): void {
+      // The selection is only ever as wide as the rows on screen, so a batch
+      // action can never reach a line that is no longer part of the receipt.
+      this.lineSelectionService.prune(this.receiptLines);
+
       this.elements.emptyState.classList.toggle("hidden", this.receiptLines.length > 0);
       this.elements.itemCount.textContent = `${this.receiptLines.length} ${this.receiptLines.length === 1 ? "line" : "lines"}`;
 

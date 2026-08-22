@@ -7,6 +7,7 @@ namespace ReceiptRing {
   const parserService = new Services.ReceiptParserService(categorizationService, idService);
   const storageService = new Services.StorageService("receipt-ring-items");
   const splitCalculatorService = new Services.SplitCalculatorService();
+  const lineSelectionService = new Services.LineSelectionService();
   const imagePreviewService = new Services.ImagePreviewService();
   const receiptImageService = new Services.ReceiptImageService();
   const geminiService = new Services.GeminiService();
@@ -38,6 +39,7 @@ namespace ReceiptRing {
     categoryPromptView,
     splitWorkspaceView,
     splitCalculatorService,
+    lineSelectionService,
     idService,
     receiptApiService,
     bankApiService,
