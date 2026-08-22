@@ -1699,7 +1699,7 @@ var ReceiptRing;
                 this.receiptApiService = receiptApiService;
                 this.panelListeners = null;
             }
-            renderLines(container, lines, assignments, people, lineModes, handlers) {
+            renderLines(container, lines, assignments, people, lineModes, selectedLineIds, handlers) {
                 const openLineIds = new Set();
                 container
                     .querySelectorAll("details.assign-dropdown[open]")
@@ -1711,9 +1711,17 @@ var ReceiptRing;
                 this.panelListeners = new AbortController();
                 container.innerHTML = "";
                 lines.forEach((line) => {
+                    const isSelected = selectedLineIds.has(line.id);
                     const row = document.createElement("div");
                     row.className = "table-row";
                     row.classList.toggle("is-ignored", line.ignored);
+                    row.classList.toggle("is-selected", isSelected);
+                    const select = document.createElement("input");
+                    select.type = "checkbox";
+                    select.className = "line-select";
+                    select.checked = isSelected;
+                    select.setAttribute("aria-label", `Select ${line.label}`);
+                    select.addEventListener("change", () => handlers.onLineSelectToggle(line.id));
                     const name = document.createElement("span");
                     name.className = "line-label";
                     name.textContent = line.label;
@@ -1737,7 +1745,7 @@ var ReceiptRing;
                     ignore.textContent = line.ignored ? "+" : "x";
                     ignore.setAttribute("aria-label", line.ignored ? "Restore line" : "Ignore line");
                     ignore.addEventListener("click", () => handlers.onLineIgnore(line.id));
-                    row.append(name, foodCheck, assignCell, amount, ignore);
+                    row.append(select, name, foodCheck, assignCell, amount, ignore);
                     container.append(row);
                     if (openLineIds.has(line.id)) {
                         dropdown.open = true;
@@ -2588,6 +2596,7 @@ var ReceiptRing;
                 this.elements.emptyState.classList.toggle("hidden", this.receiptLines.length > 0);
                 this.elements.itemCount.textContent = `${this.receiptLines.length} ${this.receiptLines.length === 1 ? "line" : "lines"}`;
                 const handlers = {
+                    onLineSelectToggle: (lineId) => this.toggleLineSelection(lineId),
                     onLineIgnore: (lineId) => this.toggleIgnoredLine(lineId),
                     onPersonDelete: (personId) => this.deletePerson(personId),
                     onAssignToggle: (lineId, personId) => this.toggleAssignment(lineId, personId),
@@ -2595,7 +2604,7 @@ var ReceiptRing;
                     onAssignValueChange: (lineId, personId, value) => this.setAssignmentValue(lineId, personId, value),
                     onLineFood: (lineId, isFood) => this.toggleLineFood(lineId, isFood)
                 };
-                this.splitWorkspaceView.renderLines(this.elements.receiptLinesList, this.receiptLines, this.assignments, this.people, this.lineModes, handlers);
+                this.splitWorkspaceView.renderLines(this.elements.receiptLinesList, this.receiptLines, this.assignments, this.people, this.lineModes, new Set(this.lineSelectionService.ids()), handlers);
                 this.splitWorkspaceView.renderPeople(this.elements.peopleList, this.people, handlers);
             }
             renderTotals() {
@@ -2906,6 +2915,10 @@ var ReceiptRing;
                         this.notificationService.error(message);
                     }
                 })();
+            }
+            toggleLineSelection(lineId) {
+                this.lineSelectionService.toggle(lineId);
+                this.renderWorkspace();
             }
             toggleIgnoredLine(lineId) {
                 this.receiptLines = this.receiptLines.map((line) => line.id === lineId ? { ...line, ignored: !line.ignored } : line);

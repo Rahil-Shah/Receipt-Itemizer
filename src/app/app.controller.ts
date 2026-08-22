@@ -300,6 +300,7 @@ namespace ReceiptRing.App {
       this.elements.itemCount.textContent = `${this.receiptLines.length} ${this.receiptLines.length === 1 ? "line" : "lines"}`;
 
       const handlers: UI.SplitWorkspaceHandlers = {
+        onLineSelectToggle: (lineId) => this.toggleLineSelection(lineId),
         onLineIgnore: (lineId) => this.toggleIgnoredLine(lineId),
         onPersonDelete: (personId) => this.deletePerson(personId),
         onAssignToggle: (lineId, personId) => this.toggleAssignment(lineId, personId),
@@ -314,6 +315,7 @@ namespace ReceiptRing.App {
         this.assignments,
         this.people,
         this.lineModes,
+        new Set(this.lineSelectionService.ids()),
         handlers
       );
       this.splitWorkspaceView.renderPeople(this.elements.peopleList, this.people, handlers);
@@ -680,6 +682,11 @@ namespace ReceiptRing.App {
           this.notificationService.error(message);
         }
       })();
+    }
+
+    private toggleLineSelection(lineId: string): void {
+      this.lineSelectionService.toggle(lineId);
+      this.renderWorkspace();
     }
 
     private toggleIgnoredLine(lineId: string): void {

@@ -603,13 +603,14 @@ input[type="number"] {
   display: none;
 }
 
-/* Five columns, matching the five cells every row renders: label, food check,
-   assignment, amount, ignore. The grid used to declare only four, so the ignore
-   button wrapped onto an implicit second row and every cell after the label sat
-   under the wrong header -- the food checkbox landed under "Assigned to". */
+/* Six columns, matching the six cells every row renders: select, label, food
+   check, assignment, amount, ignore. The grid used to declare only four, so the
+   ignore button wrapped onto an implicit second row and every cell after the
+   label sat under the wrong header -- the food checkbox landed under
+   "Assigned to". */
 .table-row {
   display: grid;
-  grid-template-columns: minmax(150px, 1.2fr) 44px minmax(140px, 0.85fr) minmax(84px, 0.4fr) 36px;
+  grid-template-columns: 22px minmax(150px, 1.2fr) 44px minmax(140px, 0.85fr) minmax(84px, 0.4fr) 36px;
   gap: 10px;
   align-items: center;
   min-height: 48px;
@@ -650,6 +651,28 @@ input[type="number"] {
    header rather than hugging the label text. */
 .table-row .line-food-check {
   justify-self: center;
+}
+
+/* The tick that puts a row in the batch selection. Sized and coloured like
+   the assignment checkboxes so the two read as the same control. */
+.line-select {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* Selected rows stay legible rather than shouting: a hairline of accent down
+   the left edge and the faintest wash, so a run of ticked lines reads as one
+   block without the table turning into a field of colour. */
+.table-row.is-selected {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.table-row.is-selected:hover {
+  background: rgba(201, 241, 88, 0.13);
 }
 
 .table-row.is-ignored {
@@ -1553,12 +1576,18 @@ input[type="number"] {
     padding: 10px 12px;
   }
 
+  /* The tick sits with the item name it selects, ahead of the label. */
+  .table-row .line-select {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
   .table-head {
     display: none;
   }
 
   .table-row .line-label {
-    grid-column: 1 / -1;
+    grid-column: 2 / -1;
     grid-row: 1;
   }
 

@@ -1,5 +1,6 @@
 namespace ReceiptRing.UI {
   export interface SplitWorkspaceHandlers {
+    onLineSelectToggle(lineId: string): void;
     onLineIgnore(lineId: string): void;
     onPersonDelete(personId: string): void;
     onAssignToggle(lineId: string, personId: string): void;
@@ -32,6 +33,7 @@ namespace ReceiptRing.UI {
       assignments: readonly Domain.LineAssignment[],
       people: readonly Domain.SplitPerson[],
       lineModes: ReadonlyMap<string, Domain.AssignmentMode>,
+      selectedLineIds: ReadonlySet<string>,
       handlers: SplitWorkspaceHandlers
     ): void {
       // Ticking a person or changing the split mode re-renders every row, which
@@ -50,9 +52,18 @@ namespace ReceiptRing.UI {
 
       container.innerHTML = "";
       lines.forEach((line) => {
+        const isSelected = selectedLineIds.has(line.id);
         const row = document.createElement("div");
         row.className = "table-row";
         row.classList.toggle("is-ignored", line.ignored);
+        row.classList.toggle("is-selected", isSelected);
+
+        const select = document.createElement("input");
+        select.type = "checkbox";
+        select.className = "line-select";
+        select.checked = isSelected;
+        select.setAttribute("aria-label", `Select ${line.label}`);
+        select.addEventListener("change", () => handlers.onLineSelectToggle(line.id));
 
         const name = document.createElement("span");
         name.className = "line-label";
@@ -82,7 +93,7 @@ namespace ReceiptRing.UI {
         ignore.setAttribute("aria-label", line.ignored ? "Restore line" : "Ignore line");
         ignore.addEventListener("click", () => handlers.onLineIgnore(line.id));
 
-        row.append(name, foodCheck, assignCell, amount, ignore);
+        row.append(select, name, foodCheck, assignCell, amount, ignore);
         container.append(row);
 
         // Reopen after insertion so there is a laid-out summary to measure.
