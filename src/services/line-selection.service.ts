@@ -41,6 +41,30 @@ namespace ReceiptRing.Services {
       this.anchorId = lineId;
     }
 
+    /**
+     * Adds every line between the anchor and `lineId` inclusive, the way a
+     * shift-click behaves in a file list. Falls back to a plain toggle when
+     * there is no anchor to reach from, or when either end is not on screen.
+     *
+     * The anchor deliberately stays put: shift-clicking a second time is how
+     * you resize a range you have just taken, and moving the anchor to the far
+     * end would make the next click extend from the wrong row.
+     */
+    selectRange(lines: readonly Domain.ReceiptLine[], lineId: string): void {
+      const target = lines.findIndex((line) => line.id === lineId);
+      const anchor = lines.findIndex((line) => line.id === this.anchorId);
+      if (target < 0 || anchor < 0) {
+        this.toggle(lineId);
+        return;
+      }
+
+      const start = Math.min(anchor, target);
+      const end = Math.max(anchor, target);
+      for (let index = start; index <= end; index += 1) {
+        this.selected.add(lines[index].id);
+      }
+    }
+
     selectAll(lines: readonly Domain.ReceiptLine[]): void {
       lines.forEach((line) => this.selected.add(line.id));
     }

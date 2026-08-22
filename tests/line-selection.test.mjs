@@ -95,3 +95,62 @@ test("pruning keeps a selection that is still entirely on screen", () => {
 
   assert.deepEqual(Array.from(selection.ids()), ["l2"]);
 });
+
+test("shift-clicking after a tick takes the run between the two", () => {
+  const selection = makeSelection();
+
+  selection.toggle("l1");
+  selection.selectRange(lines, "l3");
+
+  assert.deepEqual(Array.from(selection.ids()), ["l1", "l2", "l3"]);
+});
+
+test("a range reaches backwards from the anchor just as well", () => {
+  const selection = makeSelection();
+
+  selection.toggle("l4");
+  selection.selectRange(lines, "l2");
+
+  assert.deepEqual(Array.from(selection.ids()).sort(), ["l2", "l3", "l4"]);
+});
+
+test("the anchor stays put, so a range can be resized from the same row", () => {
+  const selection = makeSelection();
+
+  selection.toggle("l1");
+  selection.selectRange(lines, "l4");
+  selection.selectRange(lines, "l2");
+
+  // Resizing only ever adds; l3 and l4 were taken by the first range and the
+  // second is measured from l1, not from l4.
+  assert.equal(selection.has("l1"), true);
+  assert.equal(selection.has("l2"), true);
+});
+
+test("a range with no anchor behind it is just a tick", () => {
+  const selection = makeSelection();
+
+  selection.selectRange(lines, "l3");
+
+  assert.deepEqual(Array.from(selection.ids()), ["l3"]);
+});
+
+test("a range whose anchor was pruned away falls back to a tick", () => {
+  const selection = makeSelection();
+
+  selection.toggle("l1");
+  selection.prune([line("l2"), line("l3")]);
+  selection.selectRange([line("l2"), line("l3")], "l3");
+
+  assert.deepEqual(Array.from(selection.ids()), ["l3"]);
+});
+
+test("clearing forgets the anchor as well as the ticks", () => {
+  const selection = makeSelection();
+
+  selection.toggle("l1");
+  selection.clear();
+  selection.selectRange(lines, "l3");
+
+  assert.deepEqual(Array.from(selection.ids()), ["l3"]);
+});

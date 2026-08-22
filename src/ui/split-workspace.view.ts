@@ -1,6 +1,6 @@
 namespace ReceiptRing.UI {
   export interface SplitWorkspaceHandlers {
-    onLineSelectToggle(lineId: string): void;
+    onLineSelectToggle(lineId: string, extendFromAnchor: boolean): void;
     onLineIgnore(lineId: string): void;
     onPersonDelete(personId: string): void;
     onAssignToggle(lineId: string, personId: string): void;
@@ -63,7 +63,12 @@ namespace ReceiptRing.UI {
         select.className = "line-select";
         select.checked = isSelected;
         select.setAttribute("aria-label", `Select ${line.label}`);
-        select.addEventListener("change", () => handlers.onLineSelectToggle(line.id));
+        // `click`, not `change`: only the mouse event carries shiftKey, and the
+        // range shortcut is worth more than the keyboard's own toggle event,
+        // which still arrives here as a click with no modifier.
+        select.addEventListener("click", (event) =>
+          handlers.onLineSelectToggle(line.id, event.shiftKey)
+        );
 
         const name = document.createElement("span");
         name.className = "line-label";

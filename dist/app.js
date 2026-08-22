@@ -616,6 +616,19 @@ var ReceiptRing;
                 }
                 this.anchorId = lineId;
             }
+            selectRange(lines, lineId) {
+                const target = lines.findIndex((line) => line.id === lineId);
+                const anchor = lines.findIndex((line) => line.id === this.anchorId);
+                if (target < 0 || anchor < 0) {
+                    this.toggle(lineId);
+                    return;
+                }
+                const start = Math.min(anchor, target);
+                const end = Math.max(anchor, target);
+                for (let index = start; index <= end; index += 1) {
+                    this.selected.add(lines[index].id);
+                }
+            }
             selectAll(lines) {
                 lines.forEach((line) => this.selected.add(line.id));
             }
@@ -1722,7 +1735,7 @@ var ReceiptRing;
                     select.className = "line-select";
                     select.checked = isSelected;
                     select.setAttribute("aria-label", `Select ${line.label}`);
-                    select.addEventListener("change", () => handlers.onLineSelectToggle(line.id));
+                    select.addEventListener("click", (event) => handlers.onLineSelectToggle(line.id, event.shiftKey));
                     const name = document.createElement("span");
                     name.className = "line-label";
                     name.textContent = line.label;
@@ -2598,7 +2611,7 @@ var ReceiptRing;
                 this.elements.emptyState.classList.toggle("hidden", this.receiptLines.length > 0);
                 this.elements.itemCount.textContent = `${this.receiptLines.length} ${this.receiptLines.length === 1 ? "line" : "lines"}`;
                 const handlers = {
-                    onLineSelectToggle: (lineId) => this.toggleLineSelection(lineId),
+                    onLineSelectToggle: (lineId, extend) => this.toggleLineSelection(lineId, extend),
                     onLineIgnore: (lineId) => this.toggleIgnoredLine(lineId),
                     onPersonDelete: (personId) => this.deletePerson(personId),
                     onAssignToggle: (lineId, personId) => this.toggleAssignment(lineId, personId),
@@ -2935,8 +2948,13 @@ var ReceiptRing;
                 }
                 this.renderWorkspace();
             }
-            toggleLineSelection(lineId) {
-                this.lineSelectionService.toggle(lineId);
+            toggleLineSelection(lineId, extendFromAnchor) {
+                if (extendFromAnchor) {
+                    this.lineSelectionService.selectRange(this.receiptLines, lineId);
+                }
+                else {
+                    this.lineSelectionService.toggle(lineId);
+                }
                 this.renderWorkspace();
             }
             toggleIgnoredLine(lineId) {
