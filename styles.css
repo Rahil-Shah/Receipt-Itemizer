@@ -597,12 +597,18 @@ input[type="number"] {
    as a lid on the selection rather than as another permanent toolbar. The one
    place in the workspace that carries the accent as a surface: it is the only
    thing on screen that is temporarily true. */
+/* Two rows on purpose. The column is rarely wide enough for the count, a
+   name per person, the flag buttons and Clear on one line, and letting them
+   wrap where they fell put the count alongside the second row of buttons,
+   reading as a label for them. Count and Clear own the first row; everything
+   that acts on the selection sits under it. */
 .batch-bar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 10px;
   align-items: center;
-  gap: 10px;
   margin-bottom: 10px;
-  padding: 8px 10px 8px 12px;
+  padding: 9px 10px 9px 12px;
   border: 1px solid var(--accent-border);
   border-radius: 12px;
   background: var(--accent-soft);
@@ -619,7 +625,7 @@ input[type="number"] {
 
 .batch-actions {
   display: flex;
-  flex: 1;
+  grid-column: 1 / -1;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
@@ -627,7 +633,8 @@ input[type="number"] {
 }
 
 .batch-clear {
-  margin-left: auto;
+  grid-column: 2;
+  grid-row: 1;
 }
 
 /* Kept together and set off from the names by a hairline: these act on the
@@ -1684,9 +1691,7 @@ input[type="number"] {
     grid-template-columns: 1fr;
   }
 
-  /* Too little width to keep the count, the actions and Clear on one line. */
   .batch-bar {
-    flex-wrap: wrap;
     padding: 10px 12px;
   }
 

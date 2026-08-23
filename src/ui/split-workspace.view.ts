@@ -21,6 +21,9 @@ namespace ReceiptRing.UI {
 
   /** What the whole selection has in common, for the bar's flag buttons. */
   export interface BatchLineState {
+    // False when every selected line is ignored, which is the one case where
+    // there is nothing for the food flag to act on.
+    hasActive: boolean;
     allFood: boolean;
     allIgnored: boolean;
   }
@@ -308,6 +311,9 @@ namespace ReceiptRing.UI {
       food.type = "button";
       food.className = "btn btn-secondary btn-small";
       food.textContent = lineState.allFood ? "Not food" : "Food";
+      // Food describes a line in the split, so with the whole selection struck
+      // off there is nothing to say it about. Disabled rather than dead.
+      food.disabled = !lineState.hasActive;
       food.title = lineState.allFood
         ? "Stop counting the selected lines as food"
         : "Count the selected lines as food";

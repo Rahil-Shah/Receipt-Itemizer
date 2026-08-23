@@ -1893,6 +1893,7 @@ var ReceiptRing;
                 food.type = "button";
                 food.className = "btn btn-secondary btn-small";
                 food.textContent = lineState.allFood ? "Not food" : "Food";
+                food.disabled = !lineState.hasActive;
                 food.title = lineState.allFood
                     ? "Stop counting the selected lines as food"
                     : "Count the selected lines as food";
@@ -2497,6 +2498,18 @@ var ReceiptRing;
                 this.elements.clearButton.addEventListener("click", () => this.clearReceipt());
                 this.elements.selectAllLines.addEventListener("change", () => this.toggleSelectAll());
                 this.elements.batchClearButton.addEventListener("click", () => this.clearLineSelection());
+                document.addEventListener("keydown", (event) => {
+                    if (event.key !== "Escape" || this.lineSelectionService.count === 0)
+                        return;
+                    if (document.querySelector(".modal-backdrop:not(.hidden)"))
+                        return;
+                    const active = document.activeElement;
+                    if (active instanceof HTMLInputElement && active.type !== "checkbox")
+                        return;
+                    if (active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement)
+                        return;
+                    this.clearLineSelection();
+                });
                 this.elements.openCameraButton.addEventListener("click", () => void this.openCamera());
                 this.elements.closeCameraButton.addEventListener("click", () => this.closeCamera());
                 this.elements.capturePhotoButton.addEventListener("click", () => void this.captureCameraPhoto());
@@ -2738,6 +2751,7 @@ var ReceiptRing;
                 const active = this.getSelectedLines();
                 const all = this.getSelectedLines(true);
                 return {
+                    hasActive: active.length > 0,
                     allFood: active.length > 0 && active.every((line) => line.isFood === true),
                     allIgnored: all.length > 0 && all.every((line) => line.ignored)
                 };

@@ -96,6 +96,22 @@ namespace ReceiptRing.App {
       this.elements.clearButton.addEventListener("click", () => this.clearReceipt());
       this.elements.selectAllLines.addEventListener("change", () => this.toggleSelectAll());
       this.elements.batchClearButton.addEventListener("click", () => this.clearLineSelection());
+
+      // Escape is the way out of a selection, as it is out of the dialogs.
+      // Listening on the document rather than the table because clicking a
+      // batch button leaves focus on the bar, and the table is where the user
+      // is looking. Guarded so it cannot steal Escape from a text field or
+      // from a modal that is open over the top of it.
+      document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape" || this.lineSelectionService.count === 0) return;
+        if (document.querySelector(".modal-backdrop:not(.hidden)")) return;
+
+        const active = document.activeElement;
+        if (active instanceof HTMLInputElement && active.type !== "checkbox") return;
+        if (active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement) return;
+
+        this.clearLineSelection();
+      });
       this.elements.openCameraButton.addEventListener("click", () => void this.openCamera());
       this.elements.closeCameraButton.addEventListener("click", () => this.closeCamera());
       this.elements.capturePhotoButton.addEventListener("click", () => void this.captureCameraPhoto());
@@ -435,6 +451,7 @@ namespace ReceiptRing.App {
       const all = this.getSelectedLines(true);
 
       return {
+        hasActive: active.length > 0,
         allFood: active.length > 0 && active.every((line) => line.isFood === true),
         allIgnored: all.length > 0 && all.every((line) => line.ignored)
       };

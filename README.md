@@ -31,6 +31,7 @@ To use the advanced AI features of Gemini for parsing receipt items, the applica
   - **Split by Percentage**: Allocate item shares based on custom percentages.
   - **Split by Custom Amount**: Assign exact cost allocations to individuals.
 - **Per-line People Assignment**: Each receipt line has a dropdown of the people you've added — check/uncheck to assign, choose even / percentage / custom-amount split per line.
+- **Batch Select**: Tick several lines (or the header checkbox for all of them, shift-click for a run) and a bar appears above the table: one click puts a person on every selected line, clicking their name again takes them off, and the same bar marks the selection as food or ignores it. Escape clears the selection.
 - **Tax Auto-Calculation**: Input tax and automatically distribute it proportionally based on each person's subtotal.
 - **Smart Categorization**: Categorize receipt items (Dining, Groceries, Travel, etc.) and save defaults for specific items. Receipt category defaults to **Groceries**.
 - **Saved History (Postgres)**: Save a split to a Postgres database and review previous receipts, items, prices, and per-person splits under the **History** tab.
@@ -167,5 +168,5 @@ migrations under `prisma/migrations/`.
 2. **Parse**: The image is sent to the Gemini API, which returns the structured line items, discounts, and totals.
 3. **Itemize**: You can also paste raw receipt text and click **Itemize receipt** to detect lines locally.
 4. **Add People**: Enter names of individuals to add them to the splitting roster.
-5. **Assign**: Select line items, choose an assignment mode, select the people, and click **Assign**.
+5. **Assign**: Open a line's dropdown to assign it, or tick several lines and click a name in the batch bar to assign them all at once.
 6. **Settle Up**: Review individual totals under the **Split** panel including taxes.
