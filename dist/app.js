@@ -1856,6 +1856,28 @@ var ReceiptRing;
                 details.append(panel);
                 return details;
             }
+            renderBatchActions(container, people, handlers) {
+                container.innerHTML = "";
+                if (people.length === 0) {
+                    const hint = document.createElement("span");
+                    hint.className = "batch-hint";
+                    hint.textContent = "Add people to assign these lines to.";
+                    container.append(hint);
+                    return;
+                }
+                const label = document.createElement("span");
+                label.className = "batch-label";
+                label.textContent = "Assign to";
+                container.append(label);
+                people.forEach((person) => {
+                    const button = document.createElement("button");
+                    button.type = "button";
+                    button.className = "batch-person";
+                    button.textContent = person.name;
+                    button.addEventListener("click", () => handlers.onBatchAssign(person.id));
+                    container.append(button);
+                });
+            }
             renderPeople(container, people, handlers) {
                 container.innerHTML = "";
                 people.forEach((person) => {
@@ -2622,19 +2644,44 @@ var ReceiptRing;
                     onAssignToggle: (lineId, personId) => this.toggleAssignment(lineId, personId),
                     onLineModeChange: (lineId, mode) => this.setLineMode(lineId, mode),
                     onAssignValueChange: (lineId, personId, value) => this.setAssignmentValue(lineId, personId, value),
-                    onLineFood: (lineId, isFood) => this.toggleLineFood(lineId, isFood)
+                    onLineFood: (lineId, isFood) => this.toggleLineFood(lineId, isFood),
+                    onBatchAssign: (personId) => this.assignSelectedLinesTo(personId)
                 };
                 this.splitWorkspaceView.renderLines(this.elements.receiptLinesList, this.receiptLines, this.assignments, this.people, this.lineModes, new Set(this.lineSelectionService.ids()), handlers);
                 this.splitWorkspaceView.renderPeople(this.elements.peopleList, this.people, handlers);
                 this.renderSelectAll();
-                this.renderBatchBar();
+                this.renderBatchBar(handlers);
             }
-            renderBatchBar() {
+            renderBatchBar(handlers) {
                 const count = this.lineSelectionService.count;
                 this.elements.batchBar.classList.toggle("hidden", count === 0);
                 if (count === 0)
                     return;
                 this.elements.batchCount.textContent = `${count} ${count === 1 ? "line" : "lines"} selected`;
+                this.splitWorkspaceView.renderBatchActions(this.elements.batchActions, this.people, handlers);
+            }
+            assignSelectedLinesTo(personId) {
+                const targets = this.getSelectedLines();
+                const additions = [];
+                targets.forEach((line) => {
+                    const already = this.assignments.some((assignment) => assignment.lineId === line.id && assignment.personId === personId);
+                    if (already)
+                        return;
+                    additions.push({
+                        id: this.idService.create(),
+                        lineId: line.id,
+                        personId,
+                        mode: this.lineModes.get(line.id) ?? "equal",
+                        value: 0
+                    });
+                });
+                if (additions.length === 0)
+                    return;
+                this.assignments = [...this.assignments, ...additions];
+                this.render();
+            }
+            getSelectedLines() {
+                return this.receiptLines.filter((line) => this.lineSelectionService.has(line.id) && !line.ignored);
             }
             clearLineSelection() {
                 this.lineSelectionService.clear();

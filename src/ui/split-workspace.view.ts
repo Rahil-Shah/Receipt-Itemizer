@@ -7,6 +7,7 @@ namespace ReceiptRing.UI {
     onLineModeChange(lineId: string, mode: Domain.AssignmentMode): void;
     onAssignValueChange(lineId: string, personId: string, value: number): void;
     onLineFood(lineId: string, isFood: boolean): void;
+    onBatchAssign(personId: string): void;
   }
 
   const MODE_LABELS: Record<Domain.AssignmentMode, string> = {
@@ -224,6 +225,42 @@ namespace ReceiptRing.UI {
 
       details.append(panel);
       return details;
+    }
+
+    /**
+     * The controls inside the batch bar. Rebuilt whenever the selection or the
+     * cast of people changes, which is often, so it stays a plain redraw
+     * rather than anything that has to be kept in sync.
+     */
+    renderBatchActions(
+      container: HTMLElement,
+      people: readonly Domain.SplitPerson[],
+      handlers: SplitWorkspaceHandlers
+    ): void {
+      container.innerHTML = "";
+
+      if (people.length === 0) {
+        const hint = document.createElement("span");
+        hint.className = "batch-hint";
+        hint.textContent = "Add people to assign these lines to.";
+        container.append(hint);
+        return;
+      }
+
+      const label = document.createElement("span");
+      label.className = "batch-label";
+      label.textContent = "Assign to";
+      container.append(label);
+
+      people.forEach((person) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "batch-person";
+        // textContent, never innerHTML: person names are user data.
+        button.textContent = person.name;
+        button.addEventListener("click", () => handlers.onBatchAssign(person.id));
+        container.append(button);
+      });
     }
 
     renderPeople(

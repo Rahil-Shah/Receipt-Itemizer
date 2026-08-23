@@ -308,7 +308,8 @@ namespace ReceiptRing.App {
         onAssignToggle: (lineId, personId) => this.toggleAssignment(lineId, personId),
         onLineModeChange: (lineId, mode) => this.setLineMode(lineId, mode),
         onAssignValueChange: (lineId, personId, value) => this.setAssignmentValue(lineId, personId, value),
-        onLineFood: (lineId, isFood) => this.toggleLineFood(lineId, isFood)
+        onLineFood: (lineId, isFood) => this.toggleLineFood(lineId, isFood),
+        onBatchAssign: (personId) => this.assignSelectedLinesTo(personId)
       };
 
       this.splitWorkspaceView.renderLines(
@@ -322,7 +323,7 @@ namespace ReceiptRing.App {
       );
       this.splitWorkspaceView.renderPeople(this.elements.peopleList, this.people, handlers);
       this.renderSelectAll();
-      this.renderBatchBar();
+      this.renderBatchBar(handlers);
     }
 
     /**
@@ -330,12 +331,48 @@ namespace ReceiptRing.App {
      * toolbar sitting over the table would be a permanent row of controls that
      * do nothing.
      */
-    private renderBatchBar(): void {
+    private renderBatchBar(handlers: UI.SplitWorkspaceHandlers): void {
       const count = this.lineSelectionService.count;
       this.elements.batchBar.classList.toggle("hidden", count === 0);
       if (count === 0) return;
 
       this.elements.batchCount.textContent = `${count} ${count === 1 ? "line" : "lines"} selected`;
+      this.splitWorkspaceView.renderBatchActions(this.elements.batchActions, this.people, handlers);
+    }
+
+    /**
+     * Puts one person on every selected line in a single pass.
+     *
+     * Ignored lines are left out: ignoring a line drops its assignments by
+     * design, so writing new ones onto it would either be undone at once or
+     * quietly resurrect a line the user has struck off.
+     */
+    private assignSelectedLinesTo(personId: string): void {
+      const targets = this.getSelectedLines();
+      const additions: Domain.LineAssignment[] = [];
+
+      targets.forEach((line) => {
+        const already = this.assignments.some(
+          (assignment) => assignment.lineId === line.id && assignment.personId === personId
+        );
+        if (already) return;
+
+        additions.push({
+          id: this.idService.create(),
+          lineId: line.id,
+          personId,
+          mode: this.lineModes.get(line.id) ?? "equal",
+          value: 0
+        });
+      });
+
+      if (additions.length === 0) return;
+      this.assignments = [...this.assignments, ...additions];
+      this.render();
+    }
+
+    private getSelectedLines(): Domain.ReceiptLine[] {
+      return this.receiptLines.filter((line) => this.lineSelectionService.has(line.id) && !line.ignored);
     }
 
     private clearLineSelection(): void {
