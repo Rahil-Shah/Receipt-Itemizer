@@ -1856,7 +1856,7 @@ var ReceiptRing;
                 details.append(panel);
                 return details;
             }
-            renderBatchActions(container, people, handlers) {
+            renderBatchActions(container, people, assignStates, handlers) {
                 container.innerHTML = "";
                 if (people.length === 0) {
                     const hint = document.createElement("span");
@@ -1870,9 +1870,15 @@ var ReceiptRing;
                 label.textContent = "Assign to";
                 container.append(label);
                 people.forEach((person) => {
+                    const state = assignStates.get(person.id) ?? "none";
                     const button = document.createElement("button");
                     button.type = "button";
-                    button.className = "batch-person";
+                    button.className = `batch-person is-${state}`;
+                    button.setAttribute("aria-pressed", state === "all" ? "true" : state === "some" ? "mixed" : "false");
+                    button.title =
+                        state === "all"
+                            ? `Take ${person.name} off the selected lines`
+                            : `Put ${person.name} on the selected lines`;
                     button.textContent = person.name;
                     button.addEventListener("click", () => handlers.onBatchAssign(person.id));
                     container.append(button);
@@ -2645,7 +2651,7 @@ var ReceiptRing;
                     onLineModeChange: (lineId, mode) => this.setLineMode(lineId, mode),
                     onAssignValueChange: (lineId, personId, value) => this.setAssignmentValue(lineId, personId, value),
                     onLineFood: (lineId, isFood) => this.toggleLineFood(lineId, isFood),
-                    onBatchAssign: (personId) => this.assignSelectedLinesTo(personId)
+                    onBatchAssign: (personId) => this.toggleSelectedLinesFor(personId)
                 };
                 this.splitWorkspaceView.renderLines(this.elements.receiptLinesList, this.receiptLines, this.assignments, this.people, this.lineModes, new Set(this.lineSelectionService.ids()), handlers);
                 this.splitWorkspaceView.renderPeople(this.elements.peopleList, this.people, handlers);
@@ -2658,7 +2664,29 @@ var ReceiptRing;
                 if (count === 0)
                     return;
                 this.elements.batchCount.textContent = `${count} ${count === 1 ? "line" : "lines"} selected`;
-                this.splitWorkspaceView.renderBatchActions(this.elements.batchActions, this.people, handlers);
+                this.splitWorkspaceView.renderBatchActions(this.elements.batchActions, this.people, this.getBatchAssignStates(), handlers);
+            }
+            getBatchAssignStates() {
+                const targets = this.getSelectedLines();
+                const states = new Map();
+                this.people.forEach((person) => {
+                    const held = targets.filter((line) => this.assignments.some((assignment) => assignment.lineId === line.id && assignment.personId === person.id)).length;
+                    states.set(person.id, held === 0 ? "none" : targets.length > 0 && held === targets.length ? "all" : "some");
+                });
+                return states;
+            }
+            toggleSelectedLinesFor(personId) {
+                if (this.getBatchAssignStates().get(personId) === "all") {
+                    this.unassignSelectedLinesFrom(personId);
+                }
+                else {
+                    this.assignSelectedLinesTo(personId);
+                }
+            }
+            unassignSelectedLinesFrom(personId) {
+                const targetIds = new Set(this.getSelectedLines().map((line) => line.id));
+                this.assignments = this.assignments.filter((assignment) => !(assignment.personId === personId && targetIds.has(assignment.lineId)));
+                this.render();
             }
             assignSelectedLinesTo(personId) {
                 const targets = this.getSelectedLines();

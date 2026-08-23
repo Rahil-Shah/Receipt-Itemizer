@@ -656,10 +656,31 @@ input[type="number"] {
   transition: background 100ms ease, border-color 100ms ease, color 100ms ease;
 }
 
+/* Already on every selected line: filled, and a click takes them off. */
+.batch-person.is-all {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+/* On some of them. Outlined rather than filled, so "partly" never gets
+   mistaken for "done" at a glance. */
+.batch-person.is-some {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
 .batch-person:hover {
   border-color: var(--accent-border);
   background: var(--surface-2);
   color: var(--accent);
+}
+
+.batch-person.is-all:hover {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+  color: var(--on-accent);
 }
 
 .batch-person:focus-visible {

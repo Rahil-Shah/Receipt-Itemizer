@@ -10,6 +10,13 @@ namespace ReceiptRing.UI {
     onBatchAssign(personId: string): void;
   }
 
+  /**
+   * How much of the current selection a person already holds: none of it, some
+   * of it, or all of it. The bar's buttons read this to say what a click will
+   * do, since clicking a name that is already on every line takes it off again.
+   */
+  export type BatchAssignState = "none" | "some" | "all";
+
   const MODE_LABELS: Record<Domain.AssignmentMode, string> = {
     equal: "Split evenly",
     percentage: "Split by percentage",
@@ -235,6 +242,7 @@ namespace ReceiptRing.UI {
     renderBatchActions(
       container: HTMLElement,
       people: readonly Domain.SplitPerson[],
+      assignStates: ReadonlyMap<string, BatchAssignState>,
       handlers: SplitWorkspaceHandlers
     ): void {
       container.innerHTML = "";
@@ -253,9 +261,17 @@ namespace ReceiptRing.UI {
       container.append(label);
 
       people.forEach((person) => {
+        const state = assignStates.get(person.id) ?? "none";
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "batch-person";
+        button.className = `batch-person is-${state}`;
+        // "mixed" is exactly what a partial selection is, and screen readers
+        // say so; without it a half-assigned person is announced as unassigned.
+        button.setAttribute("aria-pressed", state === "all" ? "true" : state === "some" ? "mixed" : "false");
+        button.title =
+          state === "all"
+            ? `Take ${person.name} off the selected lines`
+            : `Put ${person.name} on the selected lines`;
         // textContent, never innerHTML: person names are user data.
         button.textContent = person.name;
         button.addEventListener("click", () => handlers.onBatchAssign(person.id));

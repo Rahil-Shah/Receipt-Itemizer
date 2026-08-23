@@ -309,7 +309,7 @@ namespace ReceiptRing.App {
         onLineModeChange: (lineId, mode) => this.setLineMode(lineId, mode),
         onAssignValueChange: (lineId, personId, value) => this.setAssignmentValue(lineId, personId, value),
         onLineFood: (lineId, isFood) => this.toggleLineFood(lineId, isFood),
-        onBatchAssign: (personId) => this.assignSelectedLinesTo(personId)
+        onBatchAssign: (personId) => this.toggleSelectedLinesFor(personId)
       };
 
       this.splitWorkspaceView.renderLines(
@@ -337,7 +337,58 @@ namespace ReceiptRing.App {
       if (count === 0) return;
 
       this.elements.batchCount.textContent = `${count} ${count === 1 ? "line" : "lines"} selected`;
-      this.splitWorkspaceView.renderBatchActions(this.elements.batchActions, this.people, handlers);
+      this.splitWorkspaceView.renderBatchActions(
+        this.elements.batchActions,
+        this.people,
+        this.getBatchAssignStates(),
+        handlers
+      );
+    }
+
+    /**
+     * How much of the selection each person already holds, so their button can
+     * say whether clicking it will assign or unassign.
+     */
+    private getBatchAssignStates(): Map<string, UI.BatchAssignState> {
+      const targets = this.getSelectedLines();
+      const states = new Map<string, UI.BatchAssignState>();
+
+      this.people.forEach((person) => {
+        const held = targets.filter((line) =>
+          this.assignments.some(
+            (assignment) => assignment.lineId === line.id && assignment.personId === person.id
+          )
+        ).length;
+
+        states.set(
+          person.id,
+          held === 0 ? "none" : targets.length > 0 && held === targets.length ? "all" : "some"
+        );
+      });
+
+      return states;
+    }
+
+    /**
+     * One button, both directions. A name already on every selected line comes
+     * off; anything less than that fills in the gaps. Assigning from a partial
+     * state rather than unassigning is the same call the header checkbox makes:
+     * a half-done job usually wants finishing.
+     */
+    private toggleSelectedLinesFor(personId: string): void {
+      if (this.getBatchAssignStates().get(personId) === "all") {
+        this.unassignSelectedLinesFrom(personId);
+      } else {
+        this.assignSelectedLinesTo(personId);
+      }
+    }
+
+    private unassignSelectedLinesFrom(personId: string): void {
+      const targetIds = new Set(this.getSelectedLines().map((line) => line.id));
+      this.assignments = this.assignments.filter(
+        (assignment) => !(assignment.personId === personId && targetIds.has(assignment.lineId))
+      );
+      this.render();
     }
 
     /**
