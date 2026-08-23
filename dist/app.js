@@ -1856,13 +1856,14 @@ var ReceiptRing;
                 details.append(panel);
                 return details;
             }
-            renderBatchActions(container, people, assignStates, handlers) {
+            renderBatchActions(container, people, assignStates, lineState, handlers) {
                 container.innerHTML = "";
                 if (people.length === 0) {
                     const hint = document.createElement("span");
                     hint.className = "batch-hint";
                     hint.textContent = "Add people to assign these lines to.";
                     container.append(hint);
+                    container.append(this.buildBatchFlagButtons(lineState, handlers));
                     return;
                 }
                 const label = document.createElement("span");
@@ -1883,6 +1884,29 @@ var ReceiptRing;
                     button.addEventListener("click", () => handlers.onBatchAssign(person.id));
                     container.append(button);
                 });
+                container.append(this.buildBatchFlagButtons(lineState, handlers));
+            }
+            buildBatchFlagButtons(lineState, handlers) {
+                const group = document.createElement("span");
+                group.className = "batch-flags";
+                const food = document.createElement("button");
+                food.type = "button";
+                food.className = "btn btn-secondary btn-small";
+                food.textContent = lineState.allFood ? "Not food" : "Food";
+                food.title = lineState.allFood
+                    ? "Stop counting the selected lines as food"
+                    : "Count the selected lines as food";
+                food.addEventListener("click", () => handlers.onBatchFood(!lineState.allFood));
+                const ignore = document.createElement("button");
+                ignore.type = "button";
+                ignore.className = "btn btn-secondary btn-small";
+                ignore.textContent = lineState.allIgnored ? "Restore" : "Ignore";
+                ignore.title = lineState.allIgnored
+                    ? "Put the selected lines back on the receipt"
+                    : "Leave the selected lines out of the split";
+                ignore.addEventListener("click", () => handlers.onBatchIgnore(!lineState.allIgnored));
+                group.append(food, ignore);
+                return group;
             }
             renderPeople(container, people, handlers) {
                 container.innerHTML = "";
@@ -2651,7 +2675,9 @@ var ReceiptRing;
                     onLineModeChange: (lineId, mode) => this.setLineMode(lineId, mode),
                     onAssignValueChange: (lineId, personId, value) => this.setAssignmentValue(lineId, personId, value),
                     onLineFood: (lineId, isFood) => this.toggleLineFood(lineId, isFood),
-                    onBatchAssign: (personId) => this.toggleSelectedLinesFor(personId)
+                    onBatchAssign: (personId) => this.toggleSelectedLinesFor(personId),
+                    onBatchFood: (isFood) => this.setSelectedLinesFood(isFood),
+                    onBatchIgnore: (ignored) => this.setSelectedLinesIgnored(ignored)
                 };
                 this.splitWorkspaceView.renderLines(this.elements.receiptLinesList, this.receiptLines, this.assignments, this.people, this.lineModes, new Set(this.lineSelectionService.ids()), handlers);
                 this.splitWorkspaceView.renderPeople(this.elements.peopleList, this.people, handlers);
@@ -2664,7 +2690,7 @@ var ReceiptRing;
                 if (count === 0)
                     return;
                 this.elements.batchCount.textContent = `${count} ${count === 1 ? "line" : "lines"} selected`;
-                this.splitWorkspaceView.renderBatchActions(this.elements.batchActions, this.people, this.getBatchAssignStates(), handlers);
+                this.splitWorkspaceView.renderBatchActions(this.elements.batchActions, this.people, this.getBatchAssignStates(), this.getBatchLineState(), handlers);
             }
             getBatchAssignStates() {
                 const targets = this.getSelectedLines();
@@ -2708,8 +2734,34 @@ var ReceiptRing;
                 this.assignments = [...this.assignments, ...additions];
                 this.render();
             }
-            getSelectedLines() {
-                return this.receiptLines.filter((line) => this.lineSelectionService.has(line.id) && !line.ignored);
+            getBatchLineState() {
+                const active = this.getSelectedLines();
+                const all = this.getSelectedLines(true);
+                return {
+                    allFood: active.length > 0 && active.every((line) => line.isFood === true),
+                    allIgnored: all.length > 0 && all.every((line) => line.ignored)
+                };
+            }
+            setSelectedLinesFood(isFood) {
+                const targetIds = new Set(this.getSelectedLines().map((line) => line.id));
+                if (targetIds.size === 0)
+                    return;
+                targetIds.forEach((lineId) => this.foodFlags.set(lineId, isFood));
+                this.receiptLines = this.receiptLines.map((line) => targetIds.has(line.id) ? { ...line, isFood } : line);
+                this.render();
+            }
+            setSelectedLinesIgnored(ignored) {
+                const targetIds = new Set(this.getSelectedLines(true).map((line) => line.id));
+                if (targetIds.size === 0)
+                    return;
+                this.receiptLines = this.receiptLines.map((line) => targetIds.has(line.id) ? { ...line, ignored } : line);
+                if (ignored) {
+                    this.assignments = this.assignments.filter((assignment) => !targetIds.has(assignment.lineId));
+                }
+                this.render();
+            }
+            getSelectedLines(includeIgnored = false) {
+                return this.receiptLines.filter((line) => this.lineSelectionService.has(line.id) && (includeIgnored || !line.ignored));
             }
             clearLineSelection() {
                 this.lineSelectionService.clear();

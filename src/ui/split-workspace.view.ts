@@ -8,6 +8,8 @@ namespace ReceiptRing.UI {
     onAssignValueChange(lineId: string, personId: string, value: number): void;
     onLineFood(lineId: string, isFood: boolean): void;
     onBatchAssign(personId: string): void;
+    onBatchFood(isFood: boolean): void;
+    onBatchIgnore(ignored: boolean): void;
   }
 
   /**
@@ -16,6 +18,12 @@ namespace ReceiptRing.UI {
    * do, since clicking a name that is already on every line takes it off again.
    */
   export type BatchAssignState = "none" | "some" | "all";
+
+  /** What the whole selection has in common, for the bar's flag buttons. */
+  export interface BatchLineState {
+    allFood: boolean;
+    allIgnored: boolean;
+  }
 
   const MODE_LABELS: Record<Domain.AssignmentMode, string> = {
     equal: "Split evenly",
@@ -243,6 +251,7 @@ namespace ReceiptRing.UI {
       container: HTMLElement,
       people: readonly Domain.SplitPerson[],
       assignStates: ReadonlyMap<string, BatchAssignState>,
+      lineState: BatchLineState,
       handlers: SplitWorkspaceHandlers
     ): void {
       container.innerHTML = "";
@@ -252,6 +261,7 @@ namespace ReceiptRing.UI {
         hint.className = "batch-hint";
         hint.textContent = "Add people to assign these lines to.";
         container.append(hint);
+        container.append(this.buildBatchFlagButtons(lineState, handlers));
         return;
       }
 
@@ -277,6 +287,43 @@ namespace ReceiptRing.UI {
         button.addEventListener("click", () => handlers.onBatchAssign(person.id));
         container.append(button);
       });
+
+      container.append(this.buildBatchFlagButtons(lineState, handlers));
+    }
+
+    /**
+     * Food and ignore, applied to the selection. Both are written as one
+     * intent rather than a per-row toggle -- "make these food" is a decision
+     * about the whole selection, and flipping each row's own state would leave
+     * a mixed selection exactly as mixed as it started.
+     */
+    private buildBatchFlagButtons(
+      lineState: BatchLineState,
+      handlers: SplitWorkspaceHandlers
+    ): HTMLElement {
+      const group = document.createElement("span");
+      group.className = "batch-flags";
+
+      const food = document.createElement("button");
+      food.type = "button";
+      food.className = "btn btn-secondary btn-small";
+      food.textContent = lineState.allFood ? "Not food" : "Food";
+      food.title = lineState.allFood
+        ? "Stop counting the selected lines as food"
+        : "Count the selected lines as food";
+      food.addEventListener("click", () => handlers.onBatchFood(!lineState.allFood));
+
+      const ignore = document.createElement("button");
+      ignore.type = "button";
+      ignore.className = "btn btn-secondary btn-small";
+      ignore.textContent = lineState.allIgnored ? "Restore" : "Ignore";
+      ignore.title = lineState.allIgnored
+        ? "Put the selected lines back on the receipt"
+        : "Leave the selected lines out of the split";
+      ignore.addEventListener("click", () => handlers.onBatchIgnore(!lineState.allIgnored));
+
+      group.append(food, ignore);
+      return group;
     }
 
     renderPeople(

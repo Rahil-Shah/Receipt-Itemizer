@@ -630,6 +630,16 @@ input[type="number"] {
   margin-left: auto;
 }
 
+/* Kept together and set off from the names by a hairline: these act on the
+   lines themselves, not on who is paying for them. */
+.batch-flags {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 4px;
+  padding-left: 10px;
+  border-left: 1px solid var(--accent-border);
+}
+
 .batch-label,
 .batch-hint {
   color: var(--ink-2);

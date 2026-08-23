@@ -309,7 +309,9 @@ namespace ReceiptRing.App {
         onLineModeChange: (lineId, mode) => this.setLineMode(lineId, mode),
         onAssignValueChange: (lineId, personId, value) => this.setAssignmentValue(lineId, personId, value),
         onLineFood: (lineId, isFood) => this.toggleLineFood(lineId, isFood),
-        onBatchAssign: (personId) => this.toggleSelectedLinesFor(personId)
+        onBatchAssign: (personId) => this.toggleSelectedLinesFor(personId),
+        onBatchFood: (isFood) => this.setSelectedLinesFood(isFood),
+        onBatchIgnore: (ignored) => this.setSelectedLinesIgnored(ignored)
       };
 
       this.splitWorkspaceView.renderLines(
@@ -341,6 +343,7 @@ namespace ReceiptRing.App {
         this.elements.batchActions,
         this.people,
         this.getBatchAssignStates(),
+        this.getBatchLineState(),
         handlers
       );
     }
@@ -422,8 +425,56 @@ namespace ReceiptRing.App {
       this.render();
     }
 
-    private getSelectedLines(): Domain.ReceiptLine[] {
-      return this.receiptLines.filter((line) => this.lineSelectionService.has(line.id) && !line.ignored);
+    /**
+     * What the flag buttons offer. "All food" reads over the lines that are
+     * actually in the split, so a struck-off line cannot hold the label at
+     * "Food" when everything visible already is.
+     */
+    private getBatchLineState(): UI.BatchLineState {
+      const active = this.getSelectedLines();
+      const all = this.getSelectedLines(true);
+
+      return {
+        allFood: active.length > 0 && active.every((line) => line.isFood === true),
+        allIgnored: all.length > 0 && all.every((line) => line.ignored)
+      };
+    }
+
+    /** Food is a claim about a line in the split, so it skips ignored lines. */
+    private setSelectedLinesFood(isFood: boolean): void {
+      const targetIds = new Set(this.getSelectedLines().map((line) => line.id));
+      if (targetIds.size === 0) return;
+
+      targetIds.forEach((lineId) => this.foodFlags.set(lineId, isFood));
+      this.receiptLines = this.receiptLines.map((line) =>
+        targetIds.has(line.id) ? { ...line, isFood } : line
+      );
+      this.render();
+    }
+
+    /**
+     * Ignoring is the one batch action that has to see struck-off lines too --
+     * otherwise nothing could restore them together.
+     */
+    private setSelectedLinesIgnored(ignored: boolean): void {
+      const targetIds = new Set(this.getSelectedLines(true).map((line) => line.id));
+      if (targetIds.size === 0) return;
+
+      this.receiptLines = this.receiptLines.map((line) =>
+        targetIds.has(line.id) ? { ...line, ignored } : line
+      );
+      // Same rule as ignoring a single line: a line off the receipt is on
+      // nobody's tab.
+      if (ignored) {
+        this.assignments = this.assignments.filter((assignment) => !targetIds.has(assignment.lineId));
+      }
+      this.render();
+    }
+
+    private getSelectedLines(includeIgnored = false): Domain.ReceiptLine[] {
+      return this.receiptLines.filter(
+        (line) => this.lineSelectionService.has(line.id) && (includeIgnored || !line.ignored)
+      );
     }
 
     private clearLineSelection(): void {
