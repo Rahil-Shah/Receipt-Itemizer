@@ -20,6 +20,10 @@ namespace ReceiptRing.UI {
     clearButton: HTMLButtonElement;
     receiptLinesList: HTMLElement;
     selectAllLines: HTMLInputElement;
+    batchBar: HTMLElement;
+    batchCount: HTMLElement;
+    batchActions: HTMLElement;
+    batchClearButton: HTMLButtonElement;
     emptyState: HTMLElement;
     unassignedCount: HTMLElement;
     storeNameInput: HTMLInputElement;
@@ -133,6 +137,10 @@ namespace ReceiptRing.UI {
         clearButton: this.getElement("#clearButton", HTMLButtonElement),
         receiptLinesList: this.getElement("#receiptLinesList", HTMLElement),
         selectAllLines: this.getElement("#selectAllLines", HTMLInputElement),
+        batchBar: this.getElement("#batchBar", HTMLElement),
+        batchCount: this.getElement("#batchCount", HTMLElement),
+        batchActions: this.getElement("#batchActions", HTMLElement),
+        batchClearButton: this.getElement("#batchClearButton", HTMLButtonElement),
         emptyState: this.getElement("#emptyState", HTMLElement),
         unassignedCount: this.getElement("#unassignedCount", HTMLElement),
         storeNameInput: this.getElement("#storeNameInput", HTMLInputElement),

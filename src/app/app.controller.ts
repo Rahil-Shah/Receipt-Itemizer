@@ -95,6 +95,7 @@ namespace ReceiptRing.App {
       this.elements.parseButton.addEventListener("click", () => this.itemizeReceiptText());
       this.elements.clearButton.addEventListener("click", () => this.clearReceipt());
       this.elements.selectAllLines.addEventListener("change", () => this.toggleSelectAll());
+      this.elements.batchClearButton.addEventListener("click", () => this.clearLineSelection());
       this.elements.openCameraButton.addEventListener("click", () => void this.openCamera());
       this.elements.closeCameraButton.addEventListener("click", () => this.closeCamera());
       this.elements.capturePhotoButton.addEventListener("click", () => void this.captureCameraPhoto());
@@ -321,6 +322,25 @@ namespace ReceiptRing.App {
       );
       this.splitWorkspaceView.renderPeople(this.elements.peopleList, this.people, handlers);
       this.renderSelectAll();
+      this.renderBatchBar();
+    }
+
+    /**
+     * The bar exists only while there is a selection to act on: an empty
+     * toolbar sitting over the table would be a permanent row of controls that
+     * do nothing.
+     */
+    private renderBatchBar(): void {
+      const count = this.lineSelectionService.count;
+      this.elements.batchBar.classList.toggle("hidden", count === 0);
+      if (count === 0) return;
+
+      this.elements.batchCount.textContent = `${count} ${count === 1 ? "line" : "lines"} selected`;
+    }
+
+    private clearLineSelection(): void {
+      this.lineSelectionService.clear();
+      this.renderWorkspace();
     }
 
     /**

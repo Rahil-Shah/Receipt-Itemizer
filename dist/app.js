@@ -1354,6 +1354,10 @@ var ReceiptRing;
                     clearButton: this.getElement("#clearButton", HTMLButtonElement),
                     receiptLinesList: this.getElement("#receiptLinesList", HTMLElement),
                     selectAllLines: this.getElement("#selectAllLines", HTMLInputElement),
+                    batchBar: this.getElement("#batchBar", HTMLElement),
+                    batchCount: this.getElement("#batchCount", HTMLElement),
+                    batchActions: this.getElement("#batchActions", HTMLElement),
+                    batchClearButton: this.getElement("#batchClearButton", HTMLButtonElement),
                     emptyState: this.getElement("#emptyState", HTMLElement),
                     unassignedCount: this.getElement("#unassignedCount", HTMLElement),
                     storeNameInput: this.getElement("#storeNameInput", HTMLInputElement),
@@ -2440,6 +2444,7 @@ var ReceiptRing;
                 this.elements.parseButton.addEventListener("click", () => this.itemizeReceiptText());
                 this.elements.clearButton.addEventListener("click", () => this.clearReceipt());
                 this.elements.selectAllLines.addEventListener("change", () => this.toggleSelectAll());
+                this.elements.batchClearButton.addEventListener("click", () => this.clearLineSelection());
                 this.elements.openCameraButton.addEventListener("click", () => void this.openCamera());
                 this.elements.closeCameraButton.addEventListener("click", () => this.closeCamera());
                 this.elements.capturePhotoButton.addEventListener("click", () => void this.captureCameraPhoto());
@@ -2622,6 +2627,18 @@ var ReceiptRing;
                 this.splitWorkspaceView.renderLines(this.elements.receiptLinesList, this.receiptLines, this.assignments, this.people, this.lineModes, new Set(this.lineSelectionService.ids()), handlers);
                 this.splitWorkspaceView.renderPeople(this.elements.peopleList, this.people, handlers);
                 this.renderSelectAll();
+                this.renderBatchBar();
+            }
+            renderBatchBar() {
+                const count = this.lineSelectionService.count;
+                this.elements.batchBar.classList.toggle("hidden", count === 0);
+                if (count === 0)
+                    return;
+                this.elements.batchCount.textContent = `${count} ${count === 1 ? "line" : "lines"} selected`;
+            }
+            clearLineSelection() {
+                this.lineSelectionService.clear();
+                this.renderWorkspace();
             }
             renderSelectAll() {
                 const isAll = this.lineSelectionService.isAllSelected(this.receiptLines);

@@ -592,6 +592,44 @@ input[type="number"] {
   margin-bottom: 16px;
 }
 
+/* ---------------- Batch bar ---------------- */
+/* Sits directly above the table and only while lines are ticked, so it reads
+   as a lid on the selection rather than as another permanent toolbar. The one
+   place in the workspace that carries the accent as a surface: it is the only
+   thing on screen that is temporarily true. */
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 8px 10px 8px 12px;
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  background: var(--accent-soft);
+}
+
+.batch-count {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.batch-actions {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.batch-clear {
+  margin-left: auto;
+}
+
 .items-table {
   overflow: hidden;
   border: 1px solid var(--border);
@@ -1576,6 +1614,12 @@ input[type="number"] {
 @media (max-width: 560px) {
   .split-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  /* Too little width to keep the count, the actions and Clear on one line. */
+  .batch-bar {
+    flex-wrap: wrap;
+    padding: 10px 12px;
   }
 
   /* Narrow screens stack the label over its controls: row 1 is the item name
