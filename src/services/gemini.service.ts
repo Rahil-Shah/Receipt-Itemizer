@@ -93,7 +93,14 @@ namespace ReceiptRing.Services {
         const errText = await proxyResponse.text();
         throw new Error(`Receipt parsing failed (${proxyResponse.status}): ${errText}`);
       }
-      return this.extractParsedJson(await proxyResponse.json());
+      const json = await proxyResponse.json();
+      // The server unwraps the Gemini envelope, reconciles discounts, and
+      // returns the receipt JSON directly. Fall back to unwrapping here if an
+      // older server passed the raw envelope through.
+      if (json?.candidates) {
+        return this.extractParsedJson(json);
+      }
+      return json;
     }
 
     private extractParsedJson(json: any): any {

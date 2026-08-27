@@ -756,7 +756,11 @@ var ReceiptRing;
                     const errText = await proxyResponse.text();
                     throw new Error(`Receipt parsing failed (${proxyResponse.status}): ${errText}`);
                 }
-                return this.extractParsedJson(await proxyResponse.json());
+                const json = await proxyResponse.json();
+                if (json?.candidates) {
+                    return this.extractParsedJson(json);
+                }
+                return json;
             }
             extractParsedJson(json) {
                 const textResult = json?.candidates?.[0]?.content?.parts?.[0]?.text;
